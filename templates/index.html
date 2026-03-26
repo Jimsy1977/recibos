@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Chavimochic - Consulta de Recibos</title>
-<meta name="description" content="Consulta y visualiza tus recibos de agua del Proyecto Especial Chavimochic ingresando tu número de suministro."/>
+<meta name="description" content="Consulta y visualiza tus recibos de electricidad del Proyecto Especial Chavimochic ingresando tu número de suministro."/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
@@ -58,7 +58,7 @@
     <header class="space-y-6">
       <div class="flex items-center gap-4">
         <div class="w-16 h-16 rounded-2xl liquid-gradient flex items-center justify-center shadow-2xl shadow-blue-900/30">
-          <span class="material-symbols-outlined text-white text-3xl">water_drop</span>
+          <span class="material-symbols-outlined text-white text-3xl">electric_bolt</span>
         </div>
         <div>
           <h1 class="text-primary font-extrabold text-4xl tracking-tighter leading-none">Chavimochic</h1>
@@ -66,10 +66,10 @@
         </div>
       </div>
       <h2 class="text-on-surface font-extrabold text-5xl tracking-tight leading-[1.1]">
-        Gestión hídrica con <span class="text-primary">excelencia</span> para el futuro.
+        Gestión eléctrica con <span class="text-primary">excelencia</span> para el futuro.
       </h2>
       <p class="text-on-surface-variant font-medium text-xl leading-relaxed max-w-lg">
-        Acceda a sus recibos digitales en línea con total transparencia y seguridad. El desarrollo regional empieza aquí.
+        Acceda a sus recibos eléctricos en línea con total transparencia y seguridad. El desarrollo regional empieza aquí.
       </p>
     </header>
     <div class="grid grid-cols-2 gap-4">
@@ -79,7 +79,7 @@
         <p class="text-xs text-on-surface-variant mt-1">Cifrado de nivel bancario.</p>
       </div>
       <div class="p-6 rounded-2xl bg-white/50 border border-white/80 shadow-sm">
-        <span class="material-symbols-outlined text-primary mb-3 block">speed</span>
+        <span class="material-symbols-outlined text-primary mb-3 block">bolt</span>
         <p class="font-bold text-on-surface text-sm">Consulta Rápida</p>
         <p class="text-xs text-on-surface-variant mt-1">Resultados en segundos.</p>
       </div>
@@ -92,17 +92,17 @@
     <!-- Mobile logo -->
     <div class="lg:hidden flex flex-col items-center mb-8 text-center">
       <div class="w-14 h-14 rounded-xl liquid-gradient flex items-center justify-center shadow-lg shadow-blue-900/20 mb-4">
-        <span class="material-symbols-outlined text-white text-2xl">water_drop</span>
+        <span class="material-symbols-outlined text-white text-2xl">electric_bolt</span>
       </div>
       <h1 class="text-primary font-extrabold text-2xl tracking-tighter mb-1">Chavimochic</h1>
-      <p class="text-on-surface-variant font-medium text-base px-4">Gestión hídrica con transparencia.</p>
+      <p class="text-on-surface-variant font-medium text-base px-4">Gestión eléctrica con transparencia.</p>
     </div>
 
     <!-- Card -->
     <section class="glass-panel w-full max-w-md rounded-[2.5rem] p-8 md:p-12 shadow-[0_32px_64px_-12px_rgba(0,77,153,0.12)] border border-white relative overflow-hidden">
       <div class="mb-8">
         <h2 class="text-on-surface font-extrabold text-2xl mb-2">Consulta de Recibos</h2>
-        <p class="text-on-surface-variant text-base">Ingrese su número de suministro para continuar.</p>
+        <p class="text-on-surface-variant text-base">Ingrese su número de suministro eléctrico para continuar.</p>
       </div>
 
       <form action="/consultar" method="POST" class="space-y-7" id="login-form">
@@ -126,7 +126,7 @@
         <div class="flex items-start gap-4 p-5 bg-primary/5 rounded-2xl border border-primary/10">
           <span class="material-symbols-outlined text-primary text-xl mt-0.5">info</span>
           <p class="text-sm text-on-surface-variant leading-relaxed">
-            Tu número de suministro es tu <strong>usuario y contraseña</strong> para acceder al portal. Aparece en la parte superior de tu recibo físico.
+            Tu número de suministro eléctrico es tu <strong>usuario y contraseña</strong> para acceder al portal. Aparece en la parte superior de tu recibo de luz.
           </p>
         </div>
 
@@ -140,7 +140,7 @@
       <div class="mt-8 pt-6 border-t border-outline-variant/30 flex justify-between items-center">
         <span class="text-xs font-bold text-primary uppercase tracking-wider">¿Dónde pagar?</span>
         <div class="w-1.5 h-1.5 rounded-full bg-outline-variant/50"></div>
-        <span class="text-xs font-bold text-primary uppercase tracking-wider">Reportar fuga</span>
+        <span class="text-xs font-bold text-primary uppercase tracking-wider">Reportar corte</span>
       </div>
     </section>
 
