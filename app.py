@@ -68,19 +68,35 @@ def extraer_campos_hidden(html):
     }
 
 def extraer_eventtargets_recibos(html):
-    """Extrae los __doPostBack targets de los links 'Ver Recibo'."""
+    """Extrae links 'Ver Recibo': soporta __doPostBack, window.open y URL directa."""
     soup    = BeautifulSoup(html, "html.parser")
     targets = []
     for a in soup.find_all("a"):
         texto  = (a.text or "").strip()
         if "recibo" not in texto.lower():
             continue
-        onclick = a.get("onclick", "") or ""
-        href    = a.get("href",    "") or ""
-        m = re.search(r"__doPostBack\('([^']+)','([^']*)'\)", onclick + href)
+        onclick  = a.get("onclick", "") or ""
+        href     = a.get("href",    "") or ""
+        combined = onclick + href
+
+        # Patrón 1: __doPostBack
+        m = re.search(r"__doPostBack\('([^']+)','([^']*)'\)", combined)
         if m:
-            targets.append({"target": m.group(1), "arg": m.group(2), "texto": texto})
+            targets.append({"tipo": "postback", "target": m.group(1), "arg": m.group(2), "texto": texto})
+            continue
+
+        # Patrón 2: window.open('url')
+        m2 = re.search(r"window\.open\(['\"]([^'\"]+)['\"]", combined)
+        if m2:
+            targets.append({"tipo": "open", "url": m2.group(1), "texto": texto})
+            continue
+
+        # Patrón 3: href directo (no javascript:)
+        if href and not href.startswith("javascript") and (href.startswith("http") or href.startswith("/")):
+            targets.append({"tipo": "get", "url": href, "texto": texto})
+
     return targets
+
 
 def extraer_tabla(html):
     """Convierte la primera <table> del HTML en lista de dicts."""
@@ -121,6 +137,29 @@ def descargar_pdf_postback(session, frame_url, vs, target, arg, sumi):
         return None
     except Exception as ex:
         log(sumi, f"  postback error: {ex}")
+        return None
+
+
+def descargar_pdf_get(session, url, sumi):
+    """Intenta descargar un PDF desde una URL directa."""
+    from urllib.parse import urljoin
+    try:
+        r = session.get(urljoin(BASE_URL, url), verify=False, timeout=12)
+        ct = r.headers.get("content-type", "").lower()
+        log(sumi, f"  GET: {r.status_code} ct={ct} bytes={len(r.content)}")
+        if r.content[:4] == b"%PDF" or "pdf" in ct:
+            return r.content
+        # Si es HTML, buscar PDF embebido
+        soup_html = BeautifulSoup(r.text, "html.parser")
+        for tg in soup_html.find_all(["embed", "object", "iframe"]):
+            src = tg.get("src") or tg.get("data") or ""
+            if src and ".pdf" in src.lower():
+                r2 = session.get(urljoin(BASE_URL, src), verify=False, timeout=10)
+                if r2.content[:4] == b"%PDF":
+                    return r2.content
+        return None
+    except Exception as ex:
+        log(sumi, f"  GET error: {ex}")
         return None
 
 def navegar_a_seccion(driver, wait, texto_menu):
@@ -184,8 +223,9 @@ def scrape_recibos(suministro):
         wait.until(EC.frame_to_be_available_and_switch_to_it("frmMain"))
         time.sleep(1)
 
-        html_ec   = driver.page_source
-        frame_url = driver.current_url
+        html_ec = driver.page_source
+        # ← CLAVE: usar JS para obtener la URL REAL del frame (driver.current_url da el frameset padre)
+        frame_url = driver.execute_script("return window.location.href")
         log(suministro, f"Estado Cuenta cargado ({time.time()-t0:.1f}s) frame_url={frame_url}")
 
         # Guardar datos de estado cuenta
@@ -204,12 +244,19 @@ def scrape_recibos(suministro):
         archivos = []
 
         if targets:
-            # Estrategia 1: postback puro con requests (rápido, sin Selenium)
+            # Descarga de PDFs según el tipo de link encontrado
             for t in targets[:6]:
-                if time.time() - t0 > 75:
-                    log(suministro, "Timeout 75s — deteniendo")
+                if time.time() - t0 > 70:
+                    log(suministro, "Timeout 70s — deteniendo")
                     break
-                pdf = descargar_pdf_postback(req_s, frame_url, vs, t["target"], t["arg"], suministro)
+                pdf = None
+                tipo = t.get("tipo", "postback")
+
+                if tipo == "postback":
+                    pdf = descargar_pdf_postback(req_s, frame_url, vs, t["target"], t["arg"], suministro)
+                elif tipo in ("open", "get"):
+                    pdf = descargar_pdf_get(req_s, t["url"], suministro)
+
                 if pdf and len(pdf) > 500:
                     nombre = re.sub(r"[^a-zA-Z0-9_\-]", "_", t["texto"]) or f"Recibo_{len(archivos)+1}"
                     archivos.append({
@@ -219,7 +266,7 @@ def scrape_recibos(suministro):
                     })
                     log(suministro, f"  ✓ {nombre}.pdf ({len(pdf)}B)")
                 else:
-                    log(suministro, f"  ✗ Sin PDF para '{t['texto']}'")
+                    log(suministro, f"  ✗ Sin PDF para '{t['texto']}' (tipo={tipo})")
 
         else:
             # No hay postbacks en HTML — buscar links directos en el DOM con Selenium
