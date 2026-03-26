@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html class="light" lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Chavimochic - Consultando Recibos</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    theme: { extend: { colors: {
+      "primary":"#004d99","secondary":"#00658d","on-surface":"#191c1e",
+      "on-surface-variant":"#424752","surface":"#f7f9fc","surface-container-lowest":"#ffffff",
+      "surface-container-low":"#f2f4f7","surface-container-high":"#e6e8eb",
+      "secondary-container":"#39bfff","outline-variant":"#c2c6d4","outline":"#727783",
+      "primary-fixed":"#d6e3ff","on-primary":"#ffffff"
+    }, fontFamily: { "body": ["Inter","sans-serif"] } } }
+  }
+</script>
+<style>
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  .liquid-spinner {
+    width: 80px; height: 80px; border-radius: 50%; position: relative;
+    background: conic-gradient(from 0deg, #004d99, #39bfff, transparent);
+    mask: radial-gradient(farthest-side, transparent calc(100% - 8px), black 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 8px), black 0);
+    animation: spin 1.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; min-height: 100dvh; }
+  .wave-bg {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='%2339bfff' fill-opacity='0.06' d='M0,160L60,170C120,181,240,203,360,197C480,192,600,160,720,154C840,149,960,171,1080,176C1200,181,1320,171,1380,165L1440,160L1440,320L0,320Z'%3E%3C/path%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: bottom; background-size: cover;
+  }
+</style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden wave-bg">
+
+<header class="fixed top-0 w-full z-50 flex items-center justify-center px-6 py-6">
+  <div class="flex items-center gap-2">
+    <span class="material-symbols-outlined text-primary text-3xl" style="font-variation-settings:'FILL' 1">water_drop</span>
+    <h1 class="text-xl font-extrabold tracking-tighter text-primary uppercase">Chavimochic</h1>
+  </div>
+</header>
+
+<main class="w-full max-w-md z-10">
+  <div class="bg-surface-container-lowest rounded-[2.5rem] shadow-[0_24px_48px_rgba(0,77,153,0.08)] p-8 md:p-12 flex flex-col items-center text-center relative overflow-hidden">
+    <div class="absolute -top-12 -right-12 w-32 h-32 bg-secondary-container/10 rounded-full blur-3xl"></div>
+    <div class="absolute -bottom-12 -left-12 w-32 h-32 bg-primary/5 rounded-full blur-3xl"></div>
+
+    <!-- Spinner -->
+    <div class="relative flex items-center justify-center mb-8">
+      <div class="liquid-spinner"></div>
+      <div class="absolute flex items-center justify-center bg-surface-container-low rounded-full w-14 h-14 shadow-inner">
+        <span class="material-symbols-outlined text-secondary text-2xl">description</span>
+      </div>
+    </div>
+
+    <div class="space-y-5">
+      <div class="space-y-2">
+        <h2 class="text-2xl font-bold tracking-tight text-on-surface">Procesando Consulta</h2>
+        <p class="text-on-surface-variant leading-relaxed px-4" id="status-msg">
+          Abriendo portal y buscando recibos, por favor espera...
+        </p>
+      </div>
+
+      <div class="bg-surface-container-low rounded-2xl py-4 px-6 inline-flex flex-col items-center w-full">
+        <span class="text-[10px] font-bold tracking-[0.15em] text-outline uppercase mb-1">Código de Suministro</span>
+        <span class="text-xl font-mono font-semibold text-primary tracking-widest">{{ suministro }}</span>
+      </div>
+
+      <div class="flex justify-center gap-2 pt-2">
+        <div class="w-2.5 h-2.5 rounded-full bg-primary/20 animate-bounce" style="animation-delay:0ms"></div>
+        <div class="w-2.5 h-2.5 rounded-full bg-primary/40 animate-bounce" style="animation-delay:200ms"></div>
+        <div class="w-2.5 h-2.5 rounded-full bg-primary/80 animate-bounce" style="animation-delay:400ms"></div>
+      </div>
+    </div>
+
+    <div class="mt-10 pt-6 border-t border-outline-variant/20 w-full flex items-center justify-center gap-2 opacity-60">
+      <span class="material-symbols-outlined text-sm">lock</span>
+      <span class="text-xs font-medium tracking-wide uppercase">Conexión Segura</span>
+    </div>
+  </div>
+
+  <p class="mt-6 text-center text-on-surface-variant/70 text-sm font-medium">
+    Este proceso puede tardar entre 30 y 120 segundos.
+  </p>
+</main>
+
+<!-- Decoraciones -->
+<div class="fixed top-1/4 -right-24 w-64 h-64 bg-secondary-container/5 rounded-full blur-[100px] pointer-events-none"></div>
+<div class="fixed bottom-1/4 -left-24 w-80 h-80 bg-primary/5 rounded-full blur-[120px] pointer-events-none"></div>
+
+<script>
+  const suministro = "{{ suministro }}";
+  const mensajes = [
+    "Abriendo portal y buscando recibos, por favor espera...",
+    "Ingresando al portal de Chavimochic...",
+    "Autenticando número de suministro...",
+    "Navegando a la sección de recibos...",
+    "Descargando los archivos PDF...",
+    "Procesando documentos, casi listo...",
+  ];
+  let msgIdx = 0;
+  const statusMsg = document.getElementById('status-msg');
+
+  const rotateMsgs = setInterval(() => {
+    msgIdx = (msgIdx + 1) % mensajes.length;
+    statusMsg.textContent = mensajes[msgIdx];
+  }, 8000);
+
+  const poll = setInterval(async () => {
+    try {
+      const r = await fetch(`/estado/${suministro}`);
+      const data = await r.json();
+      if (data.status === 'done') {
+        clearInterval(poll);
+        clearInterval(rotateMsgs);
+        statusMsg.textContent = `¡Listo! Se encontraron ${data.total} recibo(s). Redirigiendo...`;
+        setTimeout(() => { window.location.href = `/recibos/${suministro}`; }, 1000);
+      } else if (data.status === 'empty') {
+        clearInterval(poll);
+        clearInterval(rotateMsgs);
+        window.location.href = `/error?msg=No+se+encontraron+recibos+para+este+suministro.&suministro=${suministro}`;
+      } else if (data.status === 'error') {
+        clearInterval(poll);
+        clearInterval(rotateMsgs);
+        const errMsg = encodeURIComponent(data.error || 'Error al consultar los recibos.');
+        window.location.href = `/error?msg=${errMsg}&suministro=${suministro}`;
+      }
+    } catch(e) { /* ignorar errores de red temporales */ }
+  }, 4000);
+</script>
+</body>
+</html>

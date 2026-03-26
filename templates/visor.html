@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html class="light" lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Chavimochic - Visor de Recibo</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script id="tailwind-config">
+  tailwind.config = {
+    theme: { extend: { colors: {
+      "primary":"#004d99","secondary":"#00658d","on-surface":"#191c1e",
+      "on-surface-variant":"#424752","surface":"#f7f9fc","surface-container-lowest":"#ffffff",
+      "surface-container-low":"#f2f4f7","surface-container-high":"#e6e8eb",
+      "primary-container":"#1565c0","on-primary":"#ffffff","outline-variant":"#c2c6d4",
+      "outline":"#727783","primary-fixed":"#d6e3ff"
+    }, fontFamily: { "body": ["Inter","sans-serif"] } } }
+  }
+</script>
+<style>
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; min-height: 100dvh; overflow: hidden; }
+  .pdf-bg {
+    background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+    background-size: 32px 32px; background-color: #f1f5f9;
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  #pdf-canvas { max-width: 100%; display: block; margin: 0 auto; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); border-radius: 4px; }
+</style>
+</head>
+<body class="bg-slate-100 h-screen flex flex-col overflow-hidden">
+
+<!-- Top bar -->
+<nav class="fixed top-0 w-full z-50 bg-white border-b border-slate-200 shadow-sm h-16 flex-shrink-0">
+  <div class="max-w-full mx-auto flex items-center justify-between px-4 md:px-6 h-full gap-4">
+
+    <!-- Left: back + file info -->
+    <div class="flex items-center gap-3 min-w-0">
+      <a href="/recibos/{{ suministro }}" class="p-2 hover:bg-slate-100 rounded-full transition-colors flex-shrink-0" title="Volver">
+        <span class="material-symbols-outlined text-slate-600">arrow_back</span>
+      </a>
+      <div class="flex flex-col min-w-0">
+        <h1 class="font-bold text-slate-900 text-sm md:text-base truncate flex items-center gap-2">
+          {{ archivo.nombre }}
+          <span class="px-2 py-0.5 bg-slate-100 text-[10px] text-slate-500 rounded uppercase tracking-wider font-bold hidden sm:inline">PDF</span>
+        </h1>
+        <span class="text-[11px] text-slate-500 hidden sm:block">Suministro: {{ suministro }} · Recibo {{ idx + 1 }} de {{ total }}</span>
+      </div>
+    </div>
+
+    <!-- Center: toolbar (desktop) -->
+    <div class="hidden lg:flex items-center bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 gap-1">
+      <button onclick="zoomOut()" class="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-slate-600 transition-all" title="Alejar">
+        <span class="material-symbols-outlined text-[20px]">zoom_out</span>
+      </button>
+      <div class="px-3 min-w-[70px] text-center">
+        <span id="zoom-level" class="text-xs font-bold text-slate-700">100%</span>
+      </div>
+      <button onclick="zoomIn()" class="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-slate-600 transition-all" title="Acercar">
+        <span class="material-symbols-outlined text-[20px]">zoom_in</span>
+      </button>
+      <div class="w-px h-6 bg-slate-200 mx-1"></div>
+      {% if prev_idx is not none %}
+      <a href="/ver/{{ suministro }}/{{ prev_idx }}" class="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-slate-600 transition-all">
+        <span class="material-symbols-outlined text-[20px]">chevron_left</span>
+      </a>
+      {% else %}
+      <span class="p-1.5 text-slate-300 cursor-not-allowed"><span class="material-symbols-outlined text-[20px]">chevron_left</span></span>
+      {% endif %}
+      <span class="text-xs px-2 text-slate-600 font-bold">{{ idx + 1 }}/{{ total }}</span>
+      {% if next_idx is not none %}
+      <a href="/ver/{{ suministro }}/{{ next_idx }}" class="p-1.5 hover:bg-white hover:shadow-sm rounded-md text-slate-600 transition-all">
+        <span class="material-symbols-outlined text-[20px]">chevron_right</span>
+      </a>
+      {% else %}
+      <span class="p-1.5 text-slate-300 cursor-not-allowed"><span class="material-symbols-outlined text-[20px]">chevron_right</span></span>
+      {% endif %}
+    </div>
+
+    <!-- Right: actions -->
+    <div class="flex items-center gap-2">
+      <button onclick="window.print()" class="hidden md:flex items-center gap-2 px-4 py-2 text-slate-600 font-medium text-sm hover:bg-slate-100 rounded-lg transition-colors">
+        <span class="material-symbols-outlined text-[20px]">print</span>
+        <span class="hidden lg:inline">Imprimir</span>
+      </button>
+      <a href="/descargar/{{ suministro }}/{{ idx }}"
+         class="bg-primary hover:opacity-90 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-md hover:shadow-lg transition-all active:scale-95">
+        <span class="material-symbols-outlined text-[20px]" style="font-variation-settings:'FILL' 1">download</span>
+        <span class="text-sm font-semibold hidden sm:inline">Descargar</span>
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- PDF viewer area -->
+<main class="flex-grow pt-16 pdf-bg overflow-y-auto no-scrollbar" id="viewer-main">
+  <div class="max-w-4xl mx-auto py-8 px-4 flex flex-col items-center gap-4">
+    <div id="loading-pdf" class="flex flex-col items-center gap-4 py-20 text-slate-500">
+      <div class="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+      <p class="font-medium">Cargando documento PDF...</p>
+    </div>
+    <canvas id="pdf-canvas" class="hidden"></canvas>
+    <div id="pdf-error" class="hidden flex-col items-center gap-4 py-20 text-slate-500 text-center">
+      <span class="material-symbols-outlined text-5xl text-slate-300">broken_image</span>
+      <p class="font-medium">No se pudo cargar el PDF.</p>
+      <a href="/descargar/{{ suministro }}/{{ idx }}" class="text-primary font-bold hover:underline">Descargar directamente</a>
+    </div>
+  </div>
+</main>
+
+<!-- Mobile bottom actions -->
+<div class="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[92%] bg-white/90 backdrop-blur-xl rounded-2xl px-6 py-4 flex justify-around items-center shadow-2xl border border-white/50">
+  <a href="/recibos/{{ suministro }}" class="flex flex-col items-center gap-1 group text-primary">
+    <span class="material-symbols-outlined">arrow_back</span>
+    <span class="text-[10px] font-bold uppercase text-slate-500">Lista</span>
+  </a>
+  <div class="w-px h-8 bg-slate-200"></div>
+  {% if prev_idx is not none %}
+  <a href="/ver/{{ suministro }}/{{ prev_idx }}" class="flex flex-col items-center gap-1 group text-primary">
+    <span class="material-symbols-outlined">chevron_left</span>
+    <span class="text-[10px] font-bold uppercase text-slate-500">Anterior</span>
+  </a>
+  {% else %}
+  <span class="flex flex-col items-center gap-1 text-slate-300">
+    <span class="material-symbols-outlined">chevron_left</span>
+    <span class="text-[10px] font-bold uppercase">Anterior</span>
+  </span>
+  {% endif %}
+  <div class="w-px h-8 bg-slate-200"></div>
+  {% if next_idx is not none %}
+  <a href="/ver/{{ suministro }}/{{ next_idx }}" class="flex flex-col items-center gap-1 group text-primary">
+    <span class="material-symbols-outlined">chevron_right</span>
+    <span class="text-[10px] font-bold uppercase text-slate-500">Siguiente</span>
+  </a>
+  {% else %}
+  <span class="flex flex-col items-center gap-1 text-slate-300">
+    <span class="material-symbols-outlined">chevron_right</span>
+    <span class="text-[10px] font-bold uppercase">Siguiente</span>
+  </span>
+  {% endif %}
+  <div class="w-px h-8 bg-slate-200"></div>
+  <a href="/descargar/{{ suministro }}/{{ idx }}" class="flex flex-col items-center gap-1 group text-primary">
+    <span class="material-symbols-outlined">download</span>
+    <span class="text-[10px] font-bold uppercase text-slate-500">Bajar</span>
+  </a>
+</div>
+
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  let currentScale = 1.5;
+  let pdfDoc = null;
+
+  async function loadPDF() {
+    try {
+      const res = await fetch('/pdf_data/{{ suministro }}/{{ idx }}');
+      const data = await res.json();
+      const pdfData = atob(data.base64);
+      const pdfArray = new Uint8Array(pdfData.length);
+      for (let i = 0; i < pdfData.length; i++) pdfArray[i] = pdfData.charCodeAt(i);
+
+      pdfDoc = await pdfjsLib.getDocument({ data: pdfArray }).promise;
+      renderPage(1, currentScale);
+      document.getElementById('loading-pdf').classList.add('hidden');
+      document.getElementById('pdf-canvas').classList.remove('hidden');
+    } catch(e) {
+      document.getElementById('loading-pdf').classList.add('hidden');
+      document.getElementById('pdf-error').classList.remove('hidden');
+    }
+  }
+
+  async function renderPage(pageNum, scale) {
+    const page = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale });
+    const canvas = document.getElementById('pdf-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    await page.render({ canvasContext: ctx, viewport }).promise;
+  }
+
+  function zoomIn() {
+    currentScale = Math.min(currentScale + 0.25, 3);
+    document.getElementById('zoom-level').textContent = Math.round(currentScale * 100 / 1.5 * 100) + '%';
+    renderPage(1, currentScale);
+  }
+
+  function zoomOut() {
+    currentScale = Math.max(currentScale - 0.25, 0.5);
+    document.getElementById('zoom-level').textContent = Math.round(currentScale * 100 / 1.5 * 100) + '%';
+    renderPage(1, currentScale);
+  }
+
+  loadPDF();
+</script>
+</body>
+</html>

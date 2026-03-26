@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html class="light" lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Chavimochic - Mis Recibos | Suministro {{ suministro }}</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+  tailwind.config = {
+    theme: { extend: { colors: {
+      "primary":"#004d99","secondary":"#00658d","on-surface":"#191c1e",
+      "on-surface-variant":"#424752","surface":"#f7f9fc","surface-container-lowest":"#ffffff",
+      "surface-container-low":"#f2f4f7","surface-container-high":"#e6e8eb",
+      "surface-container-highest":"#e0e3e6","secondary-container":"#39bfff",
+      "outline-variant":"#c2c6d4","outline":"#727783","primary-fixed":"#d6e3ff",
+      "primary-container":"#1565c0","on-primary":"#ffffff","error":"#ba1a1a",
+      "error-container":"#ffdad6","on-error-container":"#93000a","on-secondary-container":"#004b69",
+      "on-secondary":"#ffffff"
+    }, fontFamily: { "body": ["Inter","sans-serif"] } } }
+  }
+</script>
+<style>
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  .no-border { border: none !important; }
+  .tonal-stacking { box-shadow: 0 -8px 30px rgba(0,0,0,0.04); }
+  body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; min-height: 100dvh; }
+</style>
+</head>
+<body class="bg-surface text-on-surface antialiased min-h-screen pb-28 md:pb-8">
+
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-slate-50/80 backdrop-blur-xl shadow-sm">
+  <div class="max-w-7xl mx-auto flex items-center justify-between px-4 md:px-6 py-4 w-full">
+    <div class="flex items-center gap-3">
+      <a href="/" class="active:scale-95 transition-transform duration-200 text-slate-500 flex items-center gap-1 hover:text-primary">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </a>
+      <div class="flex items-center gap-1.5">
+        <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1">water_drop</span>
+        <h1 class="text-xl font-bold tracking-tighter text-primary">Chavimochic</h1>
+      </div>
+    </div>
+    <!-- Desktop nav -->
+    <div class="hidden md:flex items-center gap-8 mr-auto ml-8">
+      <a class="text-sm font-semibold text-primary border-b-2 border-primary pb-1" href="#">Recibos</a>
+    </div>
+    <div class="flex items-center gap-2 text-slate-500">
+      <span class="hidden md:inline text-sm font-medium text-on-surface-variant">Suministro: <strong class="text-primary">{{ suministro }}</strong></span>
+      <span class="material-symbols-outlined">account_circle</span>
+    </div>
+  </div>
+  <div class="bg-gradient-to-b from-slate-200/50 to-transparent h-px w-full"></div>
+</header>
+
+<main class="pt-24 pb-6 px-4 md:px-6 max-w-7xl mx-auto">
+
+  <!-- Page header -->
+  <div class="mb-8 md:mb-10">
+    <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-secondary mb-2">Consulta Digital</p>
+    <h2 class="text-2xl md:text-4xl font-extrabold tracking-tight text-on-surface leading-tight">
+      Recibos de Suministro: <span class="text-primary">{{ suministro }}</span>
+    </h2>
+    <p class="text-on-surface-variant mt-2 text-sm md:text-base">Se encontraron <strong>{{ archivos|length }}</strong> recibo(s) disponibles.</p>
+  </div>
+
+  {% if archivos %}
+  <!-- Grid de recibos -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
+    {% for archivo in archivos %}
+    <div class="bg-surface-container-lowest rounded-3xl p-5 md:p-6 shadow-sm hover:shadow-md transition-all border border-transparent hover:border-outline-variant/30 flex flex-col justify-between min-h-[160px] group">
+      <div class="flex justify-between items-start mb-4">
+        <div class="w-12 h-12 rounded-xl bg-primary-fixed flex items-center justify-center text-primary">
+          <span class="material-symbols-outlined text-2xl" style="font-variation-settings:'FILL' 1">picture_as_pdf</span>
+        </div>
+        <span class="px-2.5 py-1 rounded-lg bg-surface-container-high text-outline text-[10px] font-bold uppercase tracking-wider">PDF</span>
+      </div>
+      <div class="flex-grow">
+        <h3 class="font-bold text-base text-on-surface leading-snug">{{ archivo.nombre }}</h3>
+        <p class="text-xs text-on-surface-variant mt-1">Recibo #{{ archivo.id + 1 }}</p>
+      </div>
+      <div class="flex gap-2 mt-5">
+        <a href="/ver/{{ suministro }}/{{ archivo.id }}"
+           class="flex-1 flex items-center justify-center gap-2 py-3 px-3 bg-gradient-to-br from-primary to-primary-container text-white rounded-xl font-bold text-sm hover:opacity-90 active:scale-[0.98] transition-all">
+          <span class="material-symbols-outlined text-[18px]">visibility</span> Ver
+        </a>
+        <a href="/descargar/{{ suministro }}/{{ archivo.id }}"
+           class="w-12 h-12 flex items-center justify-center bg-surface-container-high text-primary rounded-xl hover:bg-primary-fixed active:scale-95 transition-all">
+          <span class="material-symbols-outlined">download</span>
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <!-- Empty state -->
+  <div class="flex flex-col items-center justify-center py-20 px-10 text-center">
+    <div class="w-24 h-24 bg-surface-container-low rounded-full flex items-center justify-center mb-6">
+      <span class="material-symbols-outlined text-outline text-5xl">folder_off</span>
+    </div>
+    <h3 class="text-xl font-bold text-on-surface">No se encontraron recibos</h3>
+    <p class="text-on-surface-variant mt-2">Aún no hay documentos registrados para este suministro.</p>
+    <a href="/" class="mt-6 px-6 py-3 bg-primary text-white rounded-xl font-bold text-sm hover:opacity-90 transition-all">
+      Nueva Consulta
+    </a>
+  </div>
+  {% endif %}
+
+  <!-- Info card -->
+  <div class="mt-10 md:mt-14 bg-secondary-container/20 rounded-[2rem] p-6 md:p-10 relative overflow-hidden border border-secondary-container/30">
+    <div class="relative z-10 flex flex-col md:flex-row items-start gap-5">
+      <div class="bg-secondary text-on-secondary p-4 rounded-2xl shadow-lg shrink-0">
+        <span class="material-symbols-outlined text-2xl">info</span>
+      </div>
+      <div>
+        <h4 class="font-extrabold text-lg md:text-xl text-on-secondary-container mb-1">¿Necesita ayuda con sus recibos?</h4>
+        <p class="text-sm md:text-base text-on-secondary-container/80 leading-relaxed">
+          Sus recibos digitales están disponibles las 24 horas. Si tiene discrepancias, contacte a la oficina de Chavimochic en Trujillo al <strong>(044) 482222</strong>.
+        </p>
+      </div>
+    </div>
+    <div class="absolute -bottom-8 -right-8 opacity-10 pointer-events-none">
+      <svg fill="none" height="200" viewBox="0 0 120 120" width="200"><path d="M0 60C0 26.86 26.86 0 60 0c33.14 0 60 26.86 60 60s-26.86 60-60 60C26.86 120 0 93.14 0 60Z" fill="currentColor"/></svg>
+    </div>
+  </div>
+
+  <!-- Footer nueva consulta -->
+  <div class="mt-8 text-center">
+    <a href="/" class="inline-flex items-center gap-2 text-sm font-bold text-primary hover:text-secondary transition-colors">
+      <span class="material-symbols-outlined text-[18px]">search</span>
+      Realizar nueva consulta
+    </a>
+  </div>
+</main>
+
+<!-- BottomNavBar (mobile) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-3 bg-white/80 backdrop-blur-lg no-border tonal-stacking rounded-t-[2rem]">
+  <a href="/" class="flex flex-col items-center justify-center text-slate-400 p-3 hover:text-primary active:scale-90 transition-all">
+    <span class="material-symbols-outlined">home</span>
+    <span class="text-[11px] font-medium uppercase tracking-wider mt-1">Inicio</span>
+  </a>
+  <button class="flex flex-col items-center justify-center bg-gradient-to-br from-blue-700 to-blue-600 text-white rounded-2xl p-3 shadow-lg shadow-blue-500/30 active:scale-90 transition-all">
+    <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">description</span>
+    <span class="text-[11px] font-medium uppercase tracking-wider mt-1">Recibos</span>
+  </button>
+  <button class="flex flex-col items-center justify-center text-slate-400 p-3 hover:text-primary active:scale-90 transition-all">
+    <span class="material-symbols-outlined">help</span>
+    <span class="text-[11px] font-medium uppercase tracking-wider mt-1">Ayuda</span>
+  </button>
+</nav>
+</body>
+</html>
