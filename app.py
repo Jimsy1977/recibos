@@ -17,6 +17,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -67,74 +68,61 @@ def make_driver(download_dir):
     })
     return driver
 
-def wait_for_pdf(download_dir, known_before, timeout=40):
+def wait_for_pdf(download_dir, known_before, timeout=25):
+    """Espera hasta `timeout` s a que aparezca un PDF nuevo — revisa cada 0.5 s."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        current  = set(glob.glob(os.path.join(download_dir, "*.pdf")))
-        nuevos   = current - known_before
+        current   = set(glob.glob(os.path.join(download_dir, "*.pdf")))
+        nuevos    = current - known_before
         parciales = glob.glob(os.path.join(download_dir, "*.crdownload"))
         if nuevos and not parciales:
             return nuevos
-        time.sleep(1)
+        time.sleep(0.5)
     return set()
 
-def tabla_a_lista(html_fragrment):
-    """Convierte un <table> HTML a lista de dicts."""
+def tabla_a_lista(html_fragment):
     try:
-        soup = BeautifulSoup(html_fragrment, "html.parser")
+        soup  = BeautifulSoup(html_fragment, "html.parser")
         tabla = soup.find("table")
         if not tabla:
             return []
         filas = tabla.find_all("tr")
         if not filas:
             return []
-        encabezados = [th.get_text(strip=True) for th in filas[0].find_all(["th","td"])]
+        headers = [th.get_text(strip=True) for th in filas[0].find_all(["th","td"])]
         resultado = []
         for fila in filas[1:]:
             celdas = [td.get_text(strip=True) for td in fila.find_all(["td","th"])]
             if any(celdas):
-                d = {}
-                for j, enc in enumerate(encabezados):
-                    d[enc or f"Col{j}"] = celdas[j] if j < len(celdas) else ""
+                d = {headers[j] if j < len(headers) else f"Col{j}": v
+                     for j, v in enumerate(celdas)}
                 resultado.append(d)
         return resultado
     except Exception:
         return []
 
-def navegar_seccion(driver, sumi, texto_menu):
-    """
-    Desde default_content, clic en el menú y devuelve el HTML de frmMain.
-    Retorna (html, soup) o (None, None) si falla.
-    """
-    wait = WebDriverWait(driver, 20)
+def make_requests_session(driver, referer=""):
+    """Transfiere cookies de Selenium a requests."""
+    ua = driver.execute_script("return navigator.userAgent")
+    s  = req_lib.Session()
+    s.headers.update({"User-Agent": ua, "Referer": referer,
+                      "Accept": "text/html,application/pdf,*/*"})
+    for c in driver.get_cookies():
+        s.cookies.set(c["name"], c["value"],
+                      domain=c.get("domain","").lstrip("."),
+                      path=c.get("path","/"))
+    return s
+
+def fetch_seccion_con_requests(s, url, sumi, nombre):
+    """Descarga una sección del portal con requests (sin Selenium)."""
     try:
-        driver.switch_to.default_content()
-        wait.until(EC.frame_to_be_available_and_switch_to_it("frmMenu"))
-        clicked = False
-        for a in driver.find_elements(By.TAG_NAME, "a"):
-            if texto_menu.lower() in (a.text or "").lower():
-                log(sumi, f"  Menu click: '{a.text.strip()}'")
-                driver.execute_script("arguments[0].click();", a)
-                clicked = True
-                break
-        if not clicked:
-            log(sumi, f"  No encontrado en menu: '{texto_menu}'")
-            return None, None
-        driver.switch_to.default_content()
-        time.sleep(5)
-        wait.until(EC.frame_to_be_available_and_switch_to_it("frmMain"))
-        # Espera activa por contenido
-        for _ in range(10):
-            if len(driver.find_elements(By.TAG_NAME, "table")) > 0:
-                break
-            time.sleep(1)
-        time.sleep(2)
-        html = driver.page_source
-        soup = BeautifulSoup(html, "html.parser")
-        return html, soup
-    except Exception as e:
-        log(sumi, f"  navegar_seccion({texto_menu}) error: {e}")
-        return None, None
+        r = s.get(url, verify=False, timeout=15)
+        html = r.text
+        log(sumi, f"  {nombre}: requests OK ({len(html)} chars)")
+        return html
+    except Exception as ex:
+        log(sumi, f"  {nombre}: requests error {ex}")
+        return ""
 
 
 # ── scraping principal ────────────────────────────────────────────────────────
@@ -152,144 +140,167 @@ def scrape_recibos(suministro):
         }
 
     driver = None
+    t0 = time.time()
     try:
-        log(suministro, f"Iniciando Chrome → {download_dir}")
+        log(suministro, f"[0s] Iniciando Chrome → {download_dir}")
         driver = make_driver(download_dir)
-        wait  = WebDriverWait(driver, 25)
+        wait   = WebDriverWait(driver, 20)
 
-        # ── 1. Login ──────────────────────────────────────────────────────────
+        # ── 1. Login (~3-5 s) ────────────────────────────────────────────────
         driver.get(LOGIN_URL)
         wait.until(EC.presence_of_element_located((By.ID, "TxtContrato")))
-        _shot(driver, suministro, "1_login")
+        log(suministro, f"[{time.time()-t0:.1f}s] Página login cargada")
+
         driver.find_element(By.ID, "TxtContrato").send_keys(suministro)
         driver.find_element(By.ID, "TxtPassword").send_keys(suministro)
         driver.find_element(By.ID, "BotonOK").click()
-        time.sleep(7)
 
-        if driver.find_elements(By.ID, "TxtContrato"):
-            log(suministro, "Login fallido")
+        # Esperar frame (login OK) en vez de sleep fijo
+        try:
+            wait.until(EC.frame_to_be_available_and_switch_to_it("frmMenu"))
+            log(suministro, f"[{time.time()-t0:.1f}s] Login exitoso — frmMenu disponible")
+        except TimeoutException:
+            log(suministro, "Login timeout — suministro inválido")
             with sessions_lock:
                 sessions[suministro]["status"] = "empty"
             return
 
-        log(suministro, f"Login OK — {driver.current_url}")
-        _shot(driver, suministro, "2_post_login")
+        # ── 2. Capturar menú: obtener URLs de cada sección ───────────────────
+        menu_urls = {}
+        menu_links_texto = {}
+        for a in driver.find_elements(By.TAG_NAME, "a"):
+            t  = (a.text or "").strip()
+            h  = a.get_attribute("href") or ""
+            tl = t.lower()
+            menu_links_texto[tl] = t
+            if h and not h.startswith("javascript"):
+                menu_urls[tl] = h
+            log(suministro, f"  Menu: '{t}' → '{h}'")
 
-        # ── 2. Verificar frames ───────────────────────────────────────────────
-        frames = [f.get_attribute("name") or "?" for f in
-                  driver.find_elements(By.TAG_NAME, "frame") +
-                  driver.find_elements(By.TAG_NAME, "iframe")]
-        log(suministro, f"Frames: {frames}")
+        log(suministro, f"[{time.time()-t0:.1f}s] Menu URLs: {menu_urls}")
 
-        # ── 3. Estado de Cuenta ───────────────────────────────────────────────
-        log(suministro, "=== Sección: Estado de Cuenta ===")
-        html_ec, soup_ec = navegar_seccion(driver, suministro, "estado de cuenta")
+        # ── 3. Click Estado de Cuenta → capturar frmMain ────────────────────
+        clicked = False
+        for a in driver.find_elements(By.TAG_NAME, "a"):
+            if "estado" in (a.text or "").lower():
+                driver.execute_script("arguments[0].click();", a)
+                clicked = True
+                break
+
+        if not clicked:
+            log(suministro, "No se encontró 'Estado de Cuenta' en el menú")
+            with sessions_lock:
+                sessions[suministro]["status"] = "empty"
+            return
+
+        driver.switch_to.default_content()
+
+        # Esperar frmMain con contenido (tabla o link) — máx 12 s
+        try:
+            wait.until(EC.frame_to_be_available_and_switch_to_it("frmMain"))
+            WebDriverWait(driver, 12).until(
+                lambda d: d.find_elements(By.TAG_NAME, "a") or
+                          d.find_elements(By.TAG_NAME, "table")
+            )
+            log(suministro, f"[{time.time()-t0:.1f}s] frmMain con contenido")
+        except TimeoutException:
+            log(suministro, "Timeout esperando frmMain")
+            with sessions_lock:
+                sessions[suministro]["status"] = "empty"
+            return
+
+        # Scroll para activar lazy-load
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(0.5)
+
         _shot(driver, suministro, "3_estado_cuenta")
-        if html_ec:
-            with sessions_lock:
-                sessions[suministro]["datos"]["estado_cuenta"]["html"] = html_ec
-                sessions[suministro]["datos"]["estado_cuenta"]["filas"] = tabla_a_lista(html_ec)
-                sessions[suministro]["html_debug"]["estado_cuenta"] = html_ec[:6000]
-            log(suministro, f"  Estado cuenta: {len(sessions[suministro]['datos']['estado_cuenta']['filas'])} filas tabla")
+        html_ec  = driver.page_source
+        frame_url = driver.current_url
 
-        # Guardar TODOS los links de recibo (sin deduplicar por href)
+        with sessions_lock:
+            sessions[suministro]["datos"]["estado_cuenta"]["html"]  = html_ec
+            sessions[suministro]["datos"]["estado_cuenta"]["filas"] = tabla_a_lista(html_ec)
+            sessions[suministro]["html_debug"]["estado_cuenta"]     = html_ec[:6000]
+        log(suministro, f"[{time.time()-t0:.1f}s] Estado cuenta: {len(sessions[suministro]['datos']['estado_cuenta']['filas'])} filas")
+
+        # ── 4. Capturar links de recibo ───────────────────────────────────────
         recibo_raw = []
-        if html_ec:
-            for a in driver.find_elements(By.TAG_NAME, "a"):
-                t = (a.text or "").strip()
-                h = a.get_attribute("href") or ""
-                oc = a.get_attribute("onclick") or ""
-                if "recibo" in t.lower():
-                    recibo_raw.append({"texto": t, "href": h, "onclick": oc, "idx": len(recibo_raw)})
-                    log(suministro, f"  Link recibo [{len(recibo_raw)-1}]: '{t}' href='{h}' onclick='{oc[:80]}'")
+        for a in driver.find_elements(By.TAG_NAME, "a"):
+            t  = (a.text or "").strip()
+            h  = a.get_attribute("href") or ""
+            oc = a.get_attribute("onclick") or ""
+            if "recibo" in t.lower():
+                recibo_raw.append({"texto": t, "href": h, "onclick": oc})
+                log(suministro, f"  Recibo link: '{t}' href='{h}'")
+        log(suministro, f"[{time.time()-t0:.1f}s] Links recibo: {len(recibo_raw)}")
 
-        log(suministro, f"Total links recibo: {len(recibo_raw)}")
+        # ── 5. Transferir cookies a requests ─────────────────────────────────
+        req_s = make_requests_session(driver, referer=frame_url)
 
-        # ── 4. Pagos Registrados ──────────────────────────────────────────────
-        log(suministro, "=== Sección: Sus Pagos ===")
-        html_pag, soup_pag = navegar_seccion(driver, suministro, "sus pagos")
-        if not html_pag:
-            html_pag, soup_pag = navegar_seccion(driver, suministro, "pago")
-        _shot(driver, suministro, "4_pagos")
-        if html_pag:
-            with sessions_lock:
-                sessions[suministro]["datos"]["pagos"]["html"] = html_pag
-                sessions[suministro]["datos"]["pagos"]["filas"] = tabla_a_lista(html_pag)
-                sessions[suministro]["html_debug"]["pagos"] = html_pag[:6000]
-            log(suministro, f"  Pagos: {len(sessions[suministro]['datos']['pagos']['filas'])} filas")
+        # ── 6. Sus Pagos y Sus Consumos con requests (sin Selenium) ──────────
+        # Si el menú entregó URLs directas, usarlas; si no, encontrar el link
+        # en el HTML del menú que ya cargó
+        def url_seccion(keyword):
+            for k, u in menu_urls.items():
+                if keyword in k:
+                    return u
+            return ""
 
-        # ── 5. Consumos Registrados ───────────────────────────────────────────
-        log(suministro, "=== Sección: Sus Consumos ===")
-        html_con, soup_con = navegar_seccion(driver, suministro, "sus consumos")
-        if not html_con:
-            html_con, soup_con = navegar_seccion(driver, suministro, "consumo")
-        _shot(driver, suministro, "5_consumos")
-        if html_con:
-            with sessions_lock:
-                sessions[suministro]["datos"]["consumos"]["html"] = html_con
-                sessions[suministro]["datos"]["consumos"]["filas"] = tabla_a_lista(html_con)
-                sessions[suministro]["html_debug"]["consumos"] = html_con[:6000]
-            log(suministro, f"  Consumos: {len(sessions[suministro]['datos']['consumos']['filas'])} filas")
+        url_pagos    = url_seccion("pago")
+        url_consumos = url_seccion("consumo")
+        log(suministro, f"[{time.time()-t0:.1f}s] URL pagos='{url_pagos}' consumos='{url_consumos}'")
 
-        # ── 6. Volver a Estado de Cuenta para descargar PDFs ─────────────────
+        # Descargar en paralelo con threading
+        resultados = {"pagos": "", "consumos": ""}
+
+        def fetch_pagos():
+            if url_pagos:
+                resultados["pagos"] = fetch_seccion_con_requests(req_s, url_pagos, suministro, "Sus Pagos")
+
+        def fetch_consumos():
+            if url_consumos:
+                resultados["consumos"] = fetch_seccion_con_requests(req_s, url_consumos, suministro, "Sus Consumos")
+
+        # Lanzar ambas en paralelo
+        t_pag = threading.Thread(target=fetch_pagos, daemon=True)
+        t_con = threading.Thread(target=fetch_consumos, daemon=True)
+        t_pag.start(); t_con.start()
+
+        # Mientras esperan, procesamos los links de recibo con Selenium
+        # (las secciones se cargan sin bloquear el browser)
+
+        # ── 7. Descargar PDFs ─────────────────────────────────────────────────
         if not recibo_raw:
-            log(suministro, "Sin links de recibo — empty")
+            log(suministro, "Sin links de recibo")
+            t_pag.join(); t_con.join()
             with sessions_lock:
                 sessions[suministro]["status"] = "empty"
             return
 
-        log(suministro, "=== Descargando PDFs ===")
-        html_ec2, _ = navegar_seccion(driver, suministro, "estado de cuenta")
-        if not html_ec2:
-            with sessions_lock:
-                sessions[suministro]["status"] = "empty"
-            return
+        log(suministro, f"[{time.time()-t0:.1f}s] === Descargando {len(recibo_raw)} PDFs ===")
 
-        _shot(driver, suministro, "6_frmMain_descarga")
-
-        # Preparar requests session con cookies
-        frame_url  = driver.current_url
-        user_agent = driver.execute_script("return navigator.userAgent")
-        s = req_lib.Session()
-        s.headers.update({"User-Agent": user_agent, "Referer": frame_url})
-        for c in driver.get_cookies():
-            s.cookies.set(c["name"], c["value"],
-                          domain=c.get("domain","").lstrip("."),
-                          path=c.get("path","/"))
-
-        soup_main = BeautifulSoup(html_ec2 or "", "html.parser")
+        soup_ec = BeautifulSoup(html_ec, "html.parser")
         def gv(name):
-            el = soup_main.find("input", {"name": name})
+            el = soup_ec.find("input", {"name": name})
             return el["value"] if el and el.get("value") else ""
         vs = gv("__VIEWSTATE"); vsg = gv("__VIEWSTATEGENERATOR"); ev = gv("__EVENTVALIDATION")
 
-        # Re-obtener links frescos del DOM actual
-        links_frescos = [a for a in driver.find_elements(By.TAG_NAME, "a")
-                         if "recibo" in (a.text or "").lower()]
-        log(suministro, f"Links frescos en DOM: {len(links_frescos)}")
-
-        # Asegurar que tenemos los mismos que recibo_raw
-        total_pdfs = len(recibo_raw)
         archivos_data = []
 
-        for i in range(total_pdfs):
-            info   = recibo_raw[i]
-            href   = info["href"]
-            texto  = info["texto"]
-            onclick = info["onclick"]
+        for i, info in enumerate(recibo_raw):
+            href = info["href"]; texto = info["texto"]; onclick = info["onclick"]
             pdf_bytes = None
+            log(suministro, f"[{time.time()-t0:.1f}s] --- Recibo {i+1}/{len(recibo_raw)}: '{texto}' ---")
 
-            log(suministro, f"--- Recibo {i+1}/{total_pdfs}: '{texto}' ---")
-
-            # Estrategia A: URL directa con requests
+            # Estrategia A: URL directa
             if href and not href.startswith("javascript") and href.startswith("http"):
                 try:
-                    r = s.get(href, verify=False, timeout=30)
+                    r = req_s.get(href, verify=False, timeout=20)
                     ct = r.headers.get("content-type","").lower()
                     log(suministro, f"  A: {r.status_code} ct={ct} bytes={len(r.content)}")
                     if r.content[:4] == b"%PDF" or "pdf" in ct:
                         pdf_bytes = r.content
-                        log(suministro, "  A ✓ PDF directo")
+                        log(suministro, "  A ✓")
                 except Exception as ex:
                     log(suministro, f"  A ✗ {ex}")
 
@@ -298,7 +309,7 @@ def scrape_recibos(suministro):
                 m = re.search(r"__doPostBack\('([^']+)','([^']*)'\)", onclick + href)
                 if m:
                     try:
-                        r = s.post(frame_url, verify=False, timeout=30, data={
+                        r = req_s.post(frame_url, verify=False, timeout=20, data={
                             "__EVENTTARGET": m.group(1), "__EVENTARGUMENT": m.group(2),
                             "__VIEWSTATE": vs, "__VIEWSTATEGENERATOR": vsg, "__EVENTVALIDATION": ev,
                         })
@@ -306,65 +317,61 @@ def scrape_recibos(suministro):
                         log(suministro, f"  B: {r.status_code} ct={ct} bytes={len(r.content)}")
                         if r.content[:4] == b"%PDF" or "pdf" in ct:
                             pdf_bytes = r.content
-                            log(suministro, "  B ✓ PDF postback")
+                            log(suministro, "  B ✓")
                     except Exception as ex:
                         log(suministro, f"  B ✗ {ex}")
 
-            # Estrategia C: click Selenium → esperar archivo en disco
+            # Estrategia C: click Selenium → PDF en disco
             if not pdf_bytes:
                 try:
-                    log(suministro, f"  C: click link[{i}] → esperar PDF en disco")
+                    log(suministro, f"  C: click [{i}] → disco")
                     pdfs_antes = set(glob.glob(os.path.join(download_dir, "*.pdf")))
-
-                    # re-obtener links del DOM
                     fl = [a for a in driver.find_elements(By.TAG_NAME, "a")
                           if "recibo" in (a.text or "").lower()]
-                    log(suministro, f"  C: links en DOM={len(fl)}, usando índice {i}")
+                    log(suministro, f"  C: links en DOM={len(fl)}")
 
                     if i < len(fl):
                         ventanas_antes = set(driver.window_handles)
                         driver.execute_script("arguments[0].click();", fl[i])
-                        log(suministro, f"  C: click hecho, esperando PDF (40s)...")
 
-                        # Esperar PDF en disco
-                        nuevos = wait_for_pdf(download_dir, pdfs_antes, timeout=40)
+                        # Esperar PDF en disco (máx 25 s)
+                        nuevos = wait_for_pdf(download_dir, pdfs_antes, timeout=25)
                         log(suministro, f"  C: PDFs nuevos={nuevos}")
 
                         if nuevos:
                             path = sorted(nuevos)[0]
                             with open(path, "rb") as f:
                                 pdf_bytes = f.read()
-                            log(suministro, f"  C ✓ PDF disco: {os.path.basename(path)} ({len(pdf_bytes)}bytes)")
+                            log(suministro, f"  C ✓ disco {os.path.basename(path)} ({len(pdf_bytes)}B)")
 
                         else:
-                            # Revisar nueva pestaña
+                            # Analizar nueva pestaña
                             nuevas_v = set(driver.window_handles) - ventanas_antes
-                            log(suministro, f"  C: nuevas pestañas={len(nuevas_v)}")
                             for v in nuevas_v:
                                 driver.switch_to.window(v)
-                                time.sleep(3)
-                                tab_url = driver.current_url
+                                time.sleep(2)
+                                tab_url  = driver.current_url
                                 tab_html = driver.page_source
-                                _shot(driver, suministro, f"7_tab_{i}")
-                                log(suministro, f"  C: tab_url={tab_url} html(100)={tab_html[:100]}")
+                                _shot(driver, suministro, f"tab_{i}")
+                                log(suministro, f"  C: tab_url={tab_url}")
                                 with sessions_lock:
                                     sessions[suministro]["html_debug"][f"tab_{i}"] = tab_html[:5000]
 
-                                # Intento requests en tab_url
+                                # Requests en tab_url
                                 if tab_url and tab_url not in ("about:blank",""):
                                     try:
-                                        r = s.get(tab_url, verify=False, timeout=30)
+                                        r = req_s.get(tab_url, verify=False, timeout=20)
                                         ct = r.headers.get("content-type","").lower()
-                                        log(suministro, f"  C: req tab {r.status_code} ct={ct} bytes={len(r.content)}")
-                                        if r.content[:4]==b"%PDF" or "pdf" in ct:
+                                        log(suministro, f"  C req tab: {r.status_code} ct={ct} B={len(r.content)}")
+                                        if r.content[:4] == b"%PDF" or "pdf" in ct:
                                             pdf_bytes = r.content
-                                            log(suministro, "  C ✓ PDF tab requests")
+                                            log(suministro, "  C ✓ tab requests")
                                     except Exception as ex:
-                                        log(suministro, f"  C: req tab error {ex}")
+                                        log(suministro, f"  C tab req ✗ {ex}")
 
-                                # Buscar en HTML de la pestaña
+                                # Buscar PDF en HTML de pestaña
                                 if not pdf_bytes and tab_html:
-                                    ts = BeautifulSoup(tab_html, "html.parser")
+                                    ts   = BeautifulSoup(tab_html, "html.parser")
                                     cands = []
                                     for tg in ts.find_all(["embed","object"]):
                                         src = tg.get("src") or tg.get("data","")
@@ -378,17 +385,18 @@ def scrape_recibos(suministro):
                                     if b64m:
                                         try:
                                             pdf_bytes = base64.b64decode(b64m.group(1))
+                                            log(suministro, f"  C ✓ data-URI ({len(pdf_bytes)}B)")
                                         except Exception: pass
-                                    log(suministro, f"  C: candidatos HTML={cands}")
                                     for purl in cands:
                                         if pdf_bytes: break
                                         try:
-                                            r = s.get(purl, verify=False, timeout=30)
-                                            if r.content[:4]==b"%PDF" or "pdf" in r.headers.get("content-type","").lower():
+                                            r = req_s.get(purl, verify=False, timeout=20)
+                                            if r.content[:4] == b"%PDF" or "pdf" in r.headers.get("content-type","").lower():
                                                 pdf_bytes = r.content
+                                                log(suministro, f"  C ✓ cand {purl}")
                                         except Exception: pass
 
-                                # CDP printToPDF
+                                # CDP printToPDF como último recurso
                                 if not pdf_bytes:
                                     try:
                                         res = driver.execute_cdp_cmd("Page.printToPDF",{
@@ -398,19 +406,17 @@ def scrape_recibos(suministro):
                                         data = base64.b64decode(res.get("data",""))
                                         if len(data) > 500:
                                             pdf_bytes = data
-                                            log(suministro, f"  C ✓ printToPDF ({len(data)}bytes)")
+                                            log(suministro, f"  C ✓ printToPDF ({len(pdf_bytes)}B)")
                                     except Exception as ex:
-                                        log(suministro, f"  C: printToPDF error: {ex}")
+                                        log(suministro, f"  C printToPDF ✗ {ex}")
 
                                 driver.close()
 
-                        # Volver a frmMain
                         driver.switch_to.window(driver.window_handles[0])
                         try: driver.switch_to.frame("frmMain")
                         except Exception: pass
-
                     else:
-                        log(suministro, f"  C: índice {i} >= links disponibles {len(fl)}")
+                        log(suministro, f"  C: índice {i} fuera de rango ({len(fl)})")
                 except Exception as ex:
                     log(suministro, f"  C ✗ {ex}")
                     try: driver.switch_to.window(driver.window_handles[0])
@@ -419,20 +425,73 @@ def scrape_recibos(suministro):
             # Guardar PDF
             if pdf_bytes and len(pdf_bytes) > 500:
                 nombre = re.sub(r"[^a-zA-Z0-9_\-]", "_", texto) or f"Recibo_{i+1:02d}"
-                b64 = base64.b64encode(pdf_bytes).decode()
-                archivos_data.append({"id": len(archivos_data), "nombre": f"{nombre}.pdf", "base64": b64})
-                log(suministro, f"  GUARDADO: {nombre}.pdf ({len(pdf_bytes)}bytes)")
+                archivos_data.append({
+                    "id": len(archivos_data),
+                    "nombre": f"{nombre}.pdf",
+                    "base64": base64.b64encode(pdf_bytes).decode()
+                })
+                log(suministro, f"  GUARDADO: {nombre}.pdf ({len(pdf_bytes)}B)")
             else:
                 log(suministro, f"  SIN PDF recibo {i+1}")
 
-        # ── Resultado ─────────────────────────────────────────────────────────
+        # ── 8. Esperar resultados de Pagos/Consumos (deberían ya estar) ───────
+        t_pag.join(timeout=5)
+        t_con.join(timeout=5)
+
+        html_pag = resultados["pagos"]
+        html_con = resultados["consumos"]
+
+        # Si requests no trajo URLs del menú, intentar Selenium como fallback
+        if not html_pag or not html_con:
+            log(suministro, f"[{time.time()-t0:.1f}s] Fallback Selenium para secciones sin URL")
+
+            def navegar_rapido(texto_buscar):
+                try:
+                    driver.switch_to.default_content()
+                    WebDriverWait(driver, 8).until(
+                        EC.frame_to_be_available_and_switch_to_it("frmMenu"))
+                    for a in driver.find_elements(By.TAG_NAME, "a"):
+                        if texto_buscar in (a.text or "").lower():
+                            driver.execute_script("arguments[0].click();", a)
+                            break
+                    driver.switch_to.default_content()
+                    WebDriverWait(driver, 10).until(
+                        EC.frame_to_be_available_and_switch_to_it("frmMain"))
+                    WebDriverWait(driver, 8).until(
+                        lambda d: d.find_elements(By.TAG_NAME, "table") or
+                                  d.find_elements(By.TAG_NAME, "tr"))
+                    time.sleep(0.5)
+                    return driver.page_source
+                except Exception as ex:
+                    log(suministro, f"  navegar_rapido({texto_buscar}) error: {ex}")
+                    return ""
+
+            if not html_pag:
+                html_pag = navegar_rapido("sus pagos") or navegar_rapido("pago")
+            if not html_con:
+                html_con = navegar_rapido("sus consumos") or navegar_rapido("consumo")
+
+        with sessions_lock:
+            if html_pag:
+                sessions[suministro]["datos"]["pagos"]["html"]  = html_pag
+                sessions[suministro]["datos"]["pagos"]["filas"] = tabla_a_lista(html_pag)
+                sessions[suministro]["html_debug"]["pagos"]     = html_pag[:6000]
+                log(suministro, f"[{time.time()-t0:.1f}s] Pagos: {len(sessions[suministro]['datos']['pagos']['filas'])} filas")
+            if html_con:
+                sessions[suministro]["datos"]["consumos"]["html"]  = html_con
+                sessions[suministro]["datos"]["consumos"]["filas"] = tabla_a_lista(html_con)
+                sessions[suministro]["html_debug"]["consumos"]     = html_con[:6000]
+                log(suministro, f"[{time.time()-t0:.1f}s] Consumos: {len(sessions[suministro]['datos']['consumos']['filas'])} filas")
+
+        # ── Resultado final ───────────────────────────────────────────────────
+        elapsed = time.time() - t0
         if archivos_data:
-            log(suministro, f"ÉXITO: {len(archivos_data)}/{total_pdfs} recibos")
+            log(suministro, f"[{elapsed:.1f}s] ÉXITO: {len(archivos_data)}/{len(recibo_raw)} recibo(s)")
             with sessions_lock:
                 sessions[suministro]["archivos"] = archivos_data
-                sessions[suministro]["status"] = "done"
+                sessions[suministro]["status"]   = "done"
         else:
-            log(suministro, "Sin PDFs al final")
+            log(suministro, f"[{elapsed:.1f}s] Sin PDFs")
             with sessions_lock:
                 sessions[suministro]["status"] = "empty"
 
@@ -442,7 +501,7 @@ def scrape_recibos(suministro):
         log(suministro, f"EXCEPCIÓN: {msg}")
         with sessions_lock:
             sessions[suministro]["status"] = "error"
-            sessions[suministro]["error"] = str(e)
+            sessions[suministro]["error"]  = str(e)
     finally:
         if driver:
             try: driver.quit()
@@ -479,16 +538,15 @@ def estado(suministro):
 def debug(suministro):
     with sessions_lock:
         se = sessions.get(suministro, {})
-    log_html  = "<br>".join(se.get("log",[]))
+    log_html   = "<br>".join(se.get("log",[]))
     shots_html = "".join(f'<h3>{x["step"]}</h3><img src="data:image/png;base64,{x["b64"]}" style="max-width:100%;margin-bottom:10px;border:1px solid #ccc">'
                           for x in se.get("screenshots",[]))
-    dbg_html  = "".join(f'<h3>{k}</h3><pre style="background:#111;color:#0f0;padding:10px;overflow:auto;max-height:350px">{v[:3000]}</pre>'
-                         for k,v in se.get("html_debug",{}).items())
+    dbg_html   = "".join(f'<h3>{k}</h3><pre style="background:#111;color:#0f0;padding:10px;overflow:auto;max-height:300px">{v[:3000]}</pre>'
+                          for k,v in se.get("html_debug",{}).items())
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Debug {suministro}</title>
-    <style>body{{font-family:monospace;padding:20px;background:#1a1a1a;color:#eee}}
-    pre{{background:#111;color:#0f0;padding:10px}}img{{border-radius:8px}}</style></head><body>
+    <style>body{{font-family:monospace;padding:20px;background:#1a1a1a;color:#eee}}</style></head><body>
     <h1>Debug: {suministro}</h1><h2>Estado: {se.get('status','N/A')}</h2>
-    <h2>Log</h2><pre>{log_html}</pre>
+    <h2>Log</h2><pre style="background:#111;color:#0f0;padding:12px">{log_html}</pre>
     <h2>Screenshots</h2>{shots_html}
     <h2>HTML debug</h2>{dbg_html}
     </body></html>"""
@@ -516,9 +574,9 @@ def datos_estado(suministro):
         s = sessions.get(suministro)
     if not s or s["status"] != "done":
         return render_template("error.html", mensaje="Sesión no disponible.", suministro=suministro)
-    datos = s["datos"]["estado_cuenta"]
+    d = s["datos"]["estado_cuenta"]
     return render_template("datos_estado.html", suministro=suministro,
-                           filas=datos["filas"], html_raw=datos["html"])
+                           filas=d["filas"], html_raw=d["html"])
 
 @app.route("/datos/<suministro>/pagos")
 def datos_pagos(suministro):
@@ -526,9 +584,9 @@ def datos_pagos(suministro):
         s = sessions.get(suministro)
     if not s or s["status"] != "done":
         return render_template("error.html", mensaje="Sesión no disponible.", suministro=suministro)
-    datos = s["datos"]["pagos"]
+    d = s["datos"]["pagos"]
     return render_template("datos_pagos.html", suministro=suministro,
-                           filas=datos["filas"], html_raw=datos["html"])
+                           filas=d["filas"], html_raw=d["html"])
 
 @app.route("/datos/<suministro>/consumos")
 def datos_consumos(suministro):
@@ -536,9 +594,9 @@ def datos_consumos(suministro):
         s = sessions.get(suministro)
     if not s or s["status"] != "done":
         return render_template("error.html", mensaje="Sesión no disponible.", suministro=suministro)
-    datos = s["datos"]["consumos"]
+    d = s["datos"]["consumos"]
     return render_template("datos_consumos.html", suministro=suministro,
-                           filas=datos["filas"], html_raw=datos["html"])
+                           filas=d["filas"], html_raw=d["html"])
 
 @app.route("/ver/<suministro>/<int:idx>")
 def ver_recibo(suministro, idx):
