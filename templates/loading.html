@@ -84,8 +84,9 @@
   </div>
 
   <p class="mt-6 text-center text-on-surface-variant/70 text-sm font-medium">
-    Este proceso puede tardar entre 30 y 120 segundos.
+    Este proceso puede tardar entre 30 y 90 segundos.
   </p>
+  <p id="timer-txt" class="mt-1 text-center text-outline text-xs">Tiempo: 0s</p>
 </main>
 
 <!-- Decoraciones -->
@@ -95,41 +96,83 @@
 <script>
   const suministro = "{{ suministro }}";
   const mensajes = [
-    "Abriendo portal y buscando recibos eléctricos...",
-    "Ingresando al portal de Chavimochic...",
-    "Autenticando número de suministro eléctrico...",
-    "Navegando a la sección de recibos...",
-    "Descargando los archivos PDF...",
+    "Abriendo portal Chavimochic...",
+    "Autenticando número de suministro...",
+    "Navegando a Estado de Cuenta...",
+    "Buscando recibos disponibles...",
+    "Descargando archivos PDF...",
     "Procesando documentos, casi listo...",
   ];
   let msgIdx = 0;
-  const statusMsg = document.getElementById('status-msg');
+  const statusMsg  = document.getElementById('status-msg');
+  const timerTxt   = document.getElementById('timer-txt');
+  const startTime  = Date.now();
+  const MAX_WAIT   = 3 * 60 * 1000;   // 3 minutos máximo
+  let errCount     = 0;
 
   const rotateMsgs = setInterval(() => {
     msgIdx = (msgIdx + 1) % mensajes.length;
     statusMsg.textContent = mensajes[msgIdx];
-  }, 8000);
+  }, 10000);
+
+  // Contador de tiempo visible
+  const ticker = setInterval(() => {
+    const s = Math.floor((Date.now() - startTime) / 1000);
+    timerTxt.textContent = `Tiempo transcurrido: ${s}s`;
+  }, 1000);
+
+  function stopAll() {
+    clearInterval(poll);
+    clearInterval(rotateMsgs);
+    clearInterval(ticker);
+  }
 
   const poll = setInterval(async () => {
+    // Timeout global
+    if (Date.now() - startTime > MAX_WAIT) {
+      stopAll();
+      window.location.href = `/error?msg=La+búsqueda+superó+el+tiempo+máximo+(3+min).+Intente+nuevamente.&suministro=${suministro}`;
+      return;
+    }
+
     try {
       const r = await fetch(`/estado/${suministro}`);
+
+      // Error HTTP (500, 502, etc.)
+      if (!r.ok) {
+        errCount++;
+        timerTxt.textContent = `Error HTTP ${r.status} (intento ${errCount}) — reintentando...`;
+        if (errCount >= 3) {
+          stopAll();
+          window.location.href = `/error?msg=Error+del+servidor+(${r.status}).+El+portal+puede+estar+saturado.&suministro=${suministro}`;
+        }
+        return;
+      }
+
+      errCount = 0;
       const data = await r.json();
+
       if (data.status === 'done') {
-        clearInterval(poll);
-        clearInterval(rotateMsgs);
+        stopAll();
         statusMsg.textContent = `¡Listo! Se encontraron ${data.total} recibo(s). Redirigiendo...`;
-        setTimeout(() => { window.location.href = `/recibos/${suministro}`; }, 1000);
+        setTimeout(() => { window.location.href = `/recibos/${suministro}`; }, 800);
       } else if (data.status === 'empty') {
-        clearInterval(poll);
-        clearInterval(rotateMsgs);
+        stopAll();
         window.location.href = `/error?msg=No+se+encontraron+recibos+para+este+suministro.&suministro=${suministro}`;
       } else if (data.status === 'error') {
-        clearInterval(poll);
-        clearInterval(rotateMsgs);
+        stopAll();
         const errMsg = encodeURIComponent(data.error || 'Error al consultar los recibos.');
         window.location.href = `/error?msg=${errMsg}&suministro=${suministro}`;
       }
-    } catch(e) { /* ignorar errores de red temporales */ }
+      // 'loading' o 'not_found': seguir esperando
+    } catch(e) {
+      errCount++;
+      timerTxt.textContent = `Error de red (intento ${errCount}): ${e.message}`;
+      if (errCount >= 5) {
+        stopAll();
+        window.location.href = `/error?msg=Pérdida+de+conexión+con+el+servidor.&suministro=${suministro}`;
+      }
+    }
   }, 4000);
 </script>
 </body>

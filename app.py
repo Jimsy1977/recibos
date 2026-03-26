@@ -137,6 +137,14 @@ def fetch_seccion_con_requests(s, url, sumi, nombre):
 
 
 # ── scraping principal ────────────────────────────────────────────────────────
+MAX_TIEMPO = 90   # segundos máximos totales para todo el scraping
+
+def tiempo_ok(t0):
+    """Devuelve False si se superó MAX_TIEMPO."""
+    if time.time() - t0 > MAX_TIEMPO:
+        return False
+    return True
+
 def scrape_recibos(suministro):
     download_dir = tempfile.mkdtemp(prefix=f"chavi_{suministro}_")
     with sessions_lock:
@@ -156,6 +164,7 @@ def scrape_recibos(suministro):
         log(suministro, f"[0s] Iniciando Chrome → {download_dir}")
         driver = make_driver(download_dir)
         wait   = WebDriverWait(driver, 20)
+
 
         # ── 1. Login (~3-5 s) ────────────────────────────────────────────────
         driver.get(LOGIN_URL)
@@ -298,6 +307,11 @@ def scrape_recibos(suministro):
         archivos_data = []
 
         for i, info in enumerate(recibo_raw):
+            # ── Chequeo de timeout global ─────────────────────────────────────
+            if not tiempo_ok(t0):
+                log(suministro, f"[{time.time()-t0:.1f}s] Timeout global alcanzado — parando")
+                break
+
             href = info["href"]; texto = info["texto"]; onclick = info["onclick"]
             pdf_bytes = None
             log(suministro, f"[{time.time()-t0:.1f}s] --- Recibo {i+1}/{len(recibo_raw)}: '{texto}' ---")
@@ -306,7 +320,7 @@ def scrape_recibos(suministro):
             if href and not href.startswith("javascript") and href.startswith("http"):
                 href_fixed = fix_url(href)
                 try:
-                    r = req_s.get(href_fixed, verify=False, timeout=20)
+                    r = req_s.get(href_fixed, verify=False, timeout=10)
                     ct = r.headers.get("content-type","").lower()
                     log(suministro, f"  A: {r.status_code} ct={ct} bytes={len(r.content)} url={href_fixed}")
                     if r.content[:4] == b"%PDF" or "pdf" in ct:
@@ -321,7 +335,7 @@ def scrape_recibos(suministro):
                 m = re.search(r"__doPostBack\('([^']+)','([^']*)'\)", onclick + href)
                 if m:
                     try:
-                        r = req_s.post(frame_url, verify=False, timeout=20, data={
+                        r = req_s.post(frame_url, verify=False, timeout=10, data={
                             "__EVENTTARGET": m.group(1), "__EVENTARGUMENT": m.group(2),
                             "__VIEWSTATE": vs, "__VIEWSTATEGENERATOR": vsg, "__EVENTVALIDATION": ev,
                         })
@@ -346,8 +360,8 @@ def scrape_recibos(suministro):
                         ventanas_antes = set(driver.window_handles)
                         driver.execute_script("arguments[0].click();", fl[i])
 
-                        # Esperar PDF en disco (máx 25 s)
-                        nuevos = wait_for_pdf(download_dir, pdfs_antes, timeout=25)
+                        # Esperar PDF en disco (máx 18 s)
+                        nuevos = wait_for_pdf(download_dir, pdfs_antes, timeout=18)
                         log(suministro, f"  C: PDFs nuevos={nuevos}")
 
                         if nuevos:
