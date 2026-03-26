@@ -183,7 +183,7 @@ def scrape_recibos(suministro):
 
         # ── 3. Estado de Cuenta ───────────────────────────────────────────────
         log(suministro, "=== Sección: Estado de Cuenta ===")
-        html_ec, soup_ec = navegar_seccion(driver, suministro, "estado")
+        html_ec, soup_ec = navegar_seccion(driver, suministro, "estado de cuenta")
         _shot(driver, suministro, "3_estado_cuenta")
         if html_ec:
             with sessions_lock:
@@ -206,11 +206,10 @@ def scrape_recibos(suministro):
         log(suministro, f"Total links recibo: {len(recibo_raw)}")
 
         # ── 4. Pagos Registrados ──────────────────────────────────────────────
-        log(suministro, "=== Sección: Pagos ===")
-        # Posibles nombres del menú
-        html_pag, soup_pag = navegar_seccion(driver, suministro, "pago")
+        log(suministro, "=== Sección: Sus Pagos ===")
+        html_pag, soup_pag = navegar_seccion(driver, suministro, "sus pagos")
         if not html_pag:
-            html_pag, soup_pag = navegar_seccion(driver, suministro, "historial")
+            html_pag, soup_pag = navegar_seccion(driver, suministro, "pago")
         _shot(driver, suministro, "4_pagos")
         if html_pag:
             with sessions_lock:
@@ -220,10 +219,10 @@ def scrape_recibos(suministro):
             log(suministro, f"  Pagos: {len(sessions[suministro]['datos']['pagos']['filas'])} filas")
 
         # ── 5. Consumos Registrados ───────────────────────────────────────────
-        log(suministro, "=== Sección: Consumos ===")
-        html_con, soup_con = navegar_seccion(driver, suministro, "consumo")
+        log(suministro, "=== Sección: Sus Consumos ===")
+        html_con, soup_con = navegar_seccion(driver, suministro, "sus consumos")
         if not html_con:
-            html_con, soup_con = navegar_seccion(driver, suministro, "lectura")
+            html_con, soup_con = navegar_seccion(driver, suministro, "consumo")
         _shot(driver, suministro, "5_consumos")
         if html_con:
             with sessions_lock:
@@ -240,7 +239,7 @@ def scrape_recibos(suministro):
             return
 
         log(suministro, "=== Descargando PDFs ===")
-        html_ec2, _ = navegar_seccion(driver, suministro, "estado")
+        html_ec2, _ = navegar_seccion(driver, suministro, "estado de cuenta")
         if not html_ec2:
             with sessions_lock:
                 sessions[suministro]["status"] = "empty"
