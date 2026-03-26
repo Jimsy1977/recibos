@@ -1,0 +1,60 @@
+{% extends "base_datos.html" %}
+{% set titulo = "Consumos Registrados" %}
+{% set subtitulo = "Historial de consumo eléctrico" %}
+{% set active_page = "Consumos" %}
+
+{% block content %}
+<div class="bg-white rounded-3xl shadow-sm overflow-hidden border border-outline-variant/20 mb-6">
+  <div class="px-6 py-4 border-b border-outline-variant/20 flex items-center gap-3">
+    <div class="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
+      <span class="material-symbols-outlined text-amber-600 text-xl" style="font-variation-settings:'FILL' 1">bolt</span>
+    </div>
+    <div>
+      <h3 class="font-bold text-on-surface">Historial de Consumos</h3>
+      <p class="text-xs text-on-surface-variant">
+        {% if filas %}{{ filas|length }} registro(s) de consumo{% else %}Sin datos disponibles{% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if filas %}
+  <div class="overflow-x-auto">
+    <table>
+      <thead>
+        <tr>{% for col in filas[0].keys() %}<th>{{ col }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+        {% for fila in filas %}
+        <tr>{% for val in fila.values() %}<td>{{ val or "—" }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-8 overflow-x-auto">
+    {% if html_raw %}
+      {{ html_raw | safe }}
+    {% else %}
+      <div class="text-center py-12">
+        <span class="material-symbols-outlined text-5xl text-outline block mb-3">battery_unknown</span>
+        <p class="text-on-surface-variant font-medium">No se encontraron registros de consumo para este suministro.</p>
+        <p class="text-sm text-outline mt-1">Esta información puede no estar habilitada para todos los suministros.</p>
+      </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="flex gap-3 flex-wrap mt-4">
+  <a href="/datos/{{ suministro }}/estado"
+     class="inline-flex items-center gap-2 bg-primary text-white px-5 py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition-all">
+    <span class="material-symbols-outlined text-[18px]">account_balance</span>
+    Estado de Cuenta
+  </a>
+  <a href="/recibos/{{ suministro }}"
+     class="inline-flex items-center gap-2 border border-primary text-primary px-5 py-3 rounded-xl font-semibold text-sm hover:bg-primary/5 transition-all">
+    <span class="material-symbols-outlined text-[18px]">description</span>
+    Ver Recibos PDF
+  </a>
+</div>
+{% endblock %}

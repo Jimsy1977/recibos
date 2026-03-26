@@ -42,9 +42,12 @@
         <h1 class="text-xl font-bold tracking-tighter text-primary">Chavimochic</h1>
       </div>
     </div>
-    <!-- Desktop nav -->
-    <div class="hidden md:flex items-center gap-8 mr-auto ml-8">
-      <a class="text-sm font-semibold text-primary border-b-2 border-primary pb-1" href="#">Recibos</a>
+    <!-- Desktop nav tabs -->
+    <div class="hidden md:flex items-center gap-1 mr-auto ml-8">
+      <a class="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 border-primary text-primary" href="/recibos/{{ suministro }}"><span class="material-symbols-outlined text-[16px]">description</span>Recibos PDF</a>
+      <a class="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 border-transparent text-on-surface-variant hover:text-primary" href="/datos/{{ suministro }}/estado"><span class="material-symbols-outlined text-[16px]">account_balance</span>Estado de Cuenta</a>
+      <a class="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 border-transparent text-on-surface-variant hover:text-primary" href="/datos/{{ suministro }}/pagos"><span class="material-symbols-outlined text-[16px]">payments</span>Pagos</a>
+      <a class="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 border-transparent text-on-surface-variant hover:text-primary" href="/datos/{{ suministro }}/consumos"><span class="material-symbols-outlined text-[16px]">bolt</span>Consumos</a>
     </div>
     <div class="flex items-center gap-2 text-slate-500">
       <span class="hidden md:inline text-sm font-medium text-on-surface-variant">Suministro: <strong class="text-primary">{{ suministro }}</strong></span>
@@ -136,19 +139,27 @@
 </main>
 
 <!-- BottomNavBar (mobile) -->
-<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-6 pt-3 bg-white/80 backdrop-blur-lg no-border tonal-stacking rounded-t-[2rem]">
-  <a href="/" class="flex flex-col items-center justify-center text-slate-400 p-3 hover:text-primary active:scale-90 transition-all">
-    <span class="material-symbols-outlined">home</span>
-    <span class="text-[11px] font-medium uppercase tracking-wider mt-1">Inicio</span>
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-2 pb-6 pt-2 bg-white/90 backdrop-blur-xl border-t border-outline-variant/20">
+  <a href="/recibos/{{ suministro }}" class="flex flex-col items-center p-2 text-primary">
+    <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1">description</span>
+    <span class="text-[9px] font-bold uppercase tracking-wide mt-0.5">Recibos</span>
   </a>
-  <button class="flex flex-col items-center justify-center bg-gradient-to-br from-blue-700 to-blue-600 text-white rounded-2xl p-3 shadow-lg shadow-blue-500/30 active:scale-90 transition-all">
-    <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">description</span>
-    <span class="text-[11px] font-medium uppercase tracking-wider mt-1">Recibos</span>
-  </button>
-  <button class="flex flex-col items-center justify-center text-slate-400 p-3 hover:text-primary active:scale-90 transition-all">
-    <span class="material-symbols-outlined">help</span>
-    <span class="text-[11px] font-medium uppercase tracking-wider mt-1">Ayuda</span>
-  </button>
+  <a href="/datos/{{ suministro }}/estado" class="flex flex-col items-center p-2 text-slate-400 hover:text-primary">
+    <span class="material-symbols-outlined text-[22px]">account_balance</span>
+    <span class="text-[9px] font-bold uppercase tracking-wide mt-0.5">Estado</span>
+  </a>
+  <a href="/datos/{{ suministro }}/pagos" class="flex flex-col items-center p-2 text-slate-400 hover:text-primary">
+    <span class="material-symbols-outlined text-[22px]">payments</span>
+    <span class="text-[9px] font-bold uppercase tracking-wide mt-0.5">Pagos</span>
+  </a>
+  <a href="/datos/{{ suministro }}/consumos" class="flex flex-col items-center p-2 text-slate-400 hover:text-primary">
+    <span class="material-symbols-outlined text-[22px]">bolt</span>
+    <span class="text-[9px] font-bold uppercase tracking-wide mt-0.5">Consumos</span>
+  </a>
+  <a href="/" class="flex flex-col items-center p-2 text-slate-400 hover:text-primary">
+    <span class="material-symbols-outlined text-[22px]">home</span>
+    <span class="text-[9px] font-bold uppercase tracking-wide mt-0.5">Inicio</span>
+  </a>
 </nav>
 </body>
 </html>
