@@ -38,7 +38,6 @@ def get_chrome_options(download_dir):
     options.add_experimental_option("prefs", prefs)
     return options
 
-
 def scrape_recibos(suministro):
     """Función que corre en hilo separado para hacer el scraping."""
     download_dir = tempfile.mkdtemp(prefix=f"chavimochic_{suministro}_")
@@ -50,23 +49,51 @@ def scrape_recibos(suministro):
     try:
         options = get_chrome_options(download_dir)
         driver = webdriver.Chrome(options=options)
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 20)
 
-        # Login
+        # ── 1. Abrir portal ────────────────────────────────────────────────────
         driver.get("https://www.chavimochic.gob.pe/iscomweb/iscon/maincon.aspx")
-        time.sleep(3)
+        wait.until(EC.presence_of_element_located((By.ID, "TxtContrato")))
 
-        contrato_input = wait.until(EC.presence_of_element_located((By.ID, "TxtContrato")))
-        clave_input = driver.find_element(By.ID, "TxtPassword")
-        contrato_input.send_keys(suministro)
-        clave_input.send_keys(suministro)
+        # ── 2. Login ───────────────────────────────────────────────────────────
+        driver.find_element(By.ID, "TxtContrato").send_keys(suministro)
+        driver.find_element(By.ID, "TxtPassword").send_keys(suministro)
         driver.find_element(By.ID, "BotonOK").click()
-        time.sleep(5)
 
-        # Navegar a recibos
-        driver.switch_to.frame("frmMenu")
-        recibos_link = wait.until(EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, "Estado de Cuenta")))
-        recibos_link.click()
+        # Esperar a que la página cargue post-login
+        time.sleep(6)
+
+        # Detectar login fallido por mensaje de error en página
+        page_src = driver.page_source.lower()
+        if any(kw in page_src for kw in ["usuario no válido", "contraseña incorrecta", "error de acceso", "no autorizado"]):
+            with sessions_lock:
+                sessions[suministro]["status"] = "empty"
+                sessions[suministro]["error"] = "Login fallido: suministro o contraseña no válidos."
+            return
+
+        # ── 3. Verificar que existen los frames del portal ─────────────────────
+        try:
+            wait.until(EC.frame_to_be_available_and_switch_to_it("frmMenu"))
+        except Exception:
+            with sessions_lock:
+                sessions[suministro]["status"] = "empty"
+                sessions[suministro]["error"] = "No se pudo acceder al portal. Verifique el número de suministro."
+            return
+
+        # ── 4. Navegar a Estado de Cuenta ──────────────────────────────────────
+        try:
+            recibos_link = wait.until(EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, "Estado de Cuenta")))
+            recibos_link.click()
+        except Exception:
+            try:
+                alt_link = driver.find_element(By.PARTIAL_LINK_TEXT, "Estado")
+                alt_link.click()
+            except Exception:
+                with sessions_lock:
+                    sessions[suministro]["status"] = "empty"
+                    sessions[suministro]["error"] = "No se encontró el menú de Estado de Cuenta."
+                return
+
         driver.switch_to.default_content()
         time.sleep(3)
         driver.switch_to.frame("frmMain")
