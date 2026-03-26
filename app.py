@@ -351,37 +351,107 @@ def scrape_recibos(suministro):
                     except Exception as ex:
                         log(suministro, f"  ✗ Estrategia B falló: {ex}")
 
-            # Estrategia C: Selenium clic + captura de nueva pestaña/URL
+            # Estrategia C: Selenium clic + análisis completo de la nueva pestaña
             if not pdf_bytes:
                 try:
-                    log(suministro, "  Estrategia C: click selenium + captura URL")
-                    # Re-obtener los links frescos
+                    log(suministro, "  Estrategia C: click + análisis nueva pestaña")
                     fresh_links = [a for a in driver.find_elements(By.TAG_NAME, "a")
                                    if "recibo" in (a.text or "").lower()]
                     if i < len(fresh_links):
                         ventanas_antes = set(driver.window_handles)
-                        # Usar JS click para evitar interception
                         driver.execute_script("arguments[0].click();", fresh_links[i])
-                        time.sleep(5)
+                        time.sleep(6)
 
                         ventanas_nuevas = set(driver.window_handles) - ventanas_antes
-                        log(suministro, f"  Ventanas nuevas abiertas: {len(ventanas_nuevas)}")
+                        log(suministro, f"  Ventanas nuevas: {len(ventanas_nuevas)}")
 
                         for v in ventanas_nuevas:
                             driver.switch_to.window(v)
+                            time.sleep(3)
                             nueva_url = driver.current_url
-                            log(suministro, f"  URL en nueva pestaña: {nueva_url}")
-                            _screenshot(driver, suministro, f"5_nueva_tab_{i}")
-                            try:
-                                r = s.get(nueva_url, verify=False, timeout=30)
-                                content = r.content
-                                ct = r.headers.get("content-type","").lower()
-                                log(suministro, f"  Requests en URL pestaña: status={r.status_code} ct={ct} size={len(content)}")
-                                if content[:4] == b"%PDF" or "pdf" in ct:
-                                    pdf_bytes = content
-                                    log(suministro, "  ✓ PDF obtenido de URL de nueva pestaña")
-                            except Exception as ex:
-                                log(suministro, f"  ✗ Requests en nueva URL: {ex}")
+                            log(suministro, f"  URL pestaña: {nueva_url}")
+                            _screenshot(driver, suministro, f"5_tab_{i}")
+
+                            # Capturar HTML de la pestaña
+                            tab_html = driver.page_source
+                            tab_soup = BeautifulSoup(tab_html, "html.parser")
+                            log(suministro, f"  HTML pestaña (500): {tab_html[:500]}")
+                            with sessions_lock:
+                                sessions[suministro]["html_debug"][f"tab_{i}"] = tab_html[:8000]
+
+                            # --- Buscar PDF dentro del HTML de la pestaña ---
+                            pdf_url_candidates = []
+
+                            # 1. <embed src="..."> o <object data="...">
+                            for tag in tab_soup.find_all(["embed", "object"]):
+                                src = tag.get("src") or tag.get("data") or ""
+                                if src:
+                                    pdf_url_candidates.append(urljoin(nueva_url, src))
+
+                            # 2. <iframe src="...">
+                            for tag in tab_soup.find_all("iframe"):
+                                src = tag.get("src") or ""
+                                if src and "about:blank" not in src:
+                                    pdf_url_candidates.append(urljoin(nueva_url, src))
+
+                            # 3. Links directos a .pdf en el HTML
+                            for tag in tab_soup.find_all("a"):
+                                href_t = tag.get("href") or ""
+                                if ".pdf" in href_t.lower():
+                                    pdf_url_candidates.append(urljoin(nueva_url, href_t))
+
+                            # 4. URLs de PDF en el JavaScript de la página
+                            js_pdf = re.findall(r'["\']([^"\']+\.pdf[^"\']*)["\']', tab_html, re.IGNORECASE)
+                            for j in js_pdf:
+                                pdf_url_candidates.append(urljoin(nueva_url, j))
+
+                            # 5. data-uri base64 inline (PDF en base64 dentro de HTML)
+                            b64_match = re.search(r'data:application/pdf;base64,([A-Za-z0-9+/=]+)', tab_html)
+                            if b64_match:
+                                try:
+                                    pdf_bytes = base64.b64decode(b64_match.group(1))
+                                    log(suministro, f"  ✓ PDF extraído de data-URI base64 ({len(pdf_bytes)} bytes)")
+                                except Exception:
+                                    pass
+
+                            # 6. Intentar descargar la URL de la pestaña directamente
+                            if not pdf_url_candidates:
+                                pdf_url_candidates.append(nueva_url)
+
+                            log(suministro, f"  Candidatos PDF URL: {pdf_url_candidates}")
+
+                            # Intentar descargar cada candidato con requests
+                            if not pdf_bytes:
+                                for purl in pdf_url_candidates:
+                                    if pdf_bytes:
+                                        break
+                                    try:
+                                        log(suministro, f"  Descargando candidato: {purl}")
+                                        r = s.get(purl, verify=False, timeout=30)
+                                        content = r.content
+                                        ct = r.headers.get("content-type", "").lower()
+                                        log(suministro, f"  → status={r.status_code} ct={ct} bytes={len(content)} magic={content[:8]}")
+                                        if content[:4] == b"%PDF" or "pdf" in ct:
+                                            pdf_bytes = content
+                                            log(suministro, f"  ✓ PDF descargado de {purl}")
+                                    except Exception as ex:
+                                        log(suministro, f"  ✗ Fallo en {purl}: {ex}")
+
+                            # 7. Último recurso: intentar imprimir a PDF via CDP
+                            if not pdf_bytes:
+                                try:
+                                    result = driver.execute_cdp_cmd("Page.printToPDF", {
+                                        "printBackground": True,
+                                        "preferCSSPageSize": True,
+                                    })
+                                    pdf_bytes = base64.b64decode(result.get("data", ""))
+                                    if len(pdf_bytes) > 500:
+                                        log(suministro, f"  ✓ PDF generado via printToPDF CDP ({len(pdf_bytes)} bytes)")
+                                    else:
+                                        pdf_bytes = None
+                                except Exception as ex:
+                                    log(suministro, f"  printToPDF falló: {ex}")
+
                             driver.close()
 
                         # Volver a ventana/frame principal
