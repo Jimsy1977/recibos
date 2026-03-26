@@ -168,42 +168,119 @@ def scrape_recibos(suministro):
                 sessions[suministro]["error"] = f"No se pudo entrar al frmMain: {e}"
             return
 
-        # Espera adicional para carga de contenido dinámico
-        log(suministro, "Esperando contenido dinámico en frmMain (10s)...")
-        time.sleep(10)
+        # Espera activa: hasta 20s buscando links de recibos
+        log(suministro, "Esperando links de recibo en frmMain (hasta 20s)...")
+        for tick in range(20):
+            ck = driver.find_elements(By.TAG_NAME, "a")
+            if any("recibo" in (a.text or "").lower() for a in ck):
+                log(suministro, f"Links recibo encontrados en tick {tick+1}")
+                break
+            time.sleep(1)
+        else:
+            log(suministro, "Timeout en espera activa, continuando...")
+
+        # Scroll al fondo para activar lazy-load
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
+        except Exception:
+            pass
 
         _screenshot(driver, suministro, "4_frmMain")
         main_html = driver.page_source
         with sessions_lock:
             sessions[suministro]["html_debug"]["frmMain"] = main_html[:8000]
-        log(suministro, f"HTML frmMain (primeros 500 chars): {main_html[:500]}")
+        log(suministro, f"HTML frmMain primeros 500: {main_html[:500]}")
 
-        # ── PASO 5: Buscar todos los links "Ver Recibo" ───────────────────────
-        todos_links = driver.find_elements(By.TAG_NAME, "a")
-        log(suministro, f"Total links en frmMain: {len(todos_links)}")
+        # ── PASO 5A: Selenium find_elements ───────────────────────────────────
+        todos_links_sel = driver.find_elements(By.TAG_NAME, "a")
+        log(suministro, f"Selenium links en frmMain: {len(todos_links_sel)}")
+        for a in todos_links_sel[:20]:
+            log(suministro, f"  sel-a text='{a.text.strip()}' href='{a.get_attribute('href')}'")
 
+        # ── PASO 5B: JavaScript querySelectorAll (más confiable) ──────────────
+        try:
+            links_js = driver.execute_script("""
+                return Array.from(document.querySelectorAll('a')).map(a => ({
+                    text: a.innerText.trim(),
+                    href: a.href || '',
+                    onclick: a.getAttribute('onclick') || ''
+                }));
+            """)
+            log(suministro, f"JS links en frmMain: {len(links_js)}")
+            for lj in links_js[:20]:
+                log(suministro, f"  js-a text='{lj['text']}' href='{lj['href']}'")
+        except Exception as ejs:
+            links_js = []
+            log(suministro, f"Error JS: {ejs}")
+
+        # ── PASO 5C: Buscar en sub-frames dentro de frmMain ───────────────────
+        sub_frames = driver.find_elements(By.TAG_NAME, "frame") + \
+                     driver.find_elements(By.TAG_NAME, "iframe")
+        log(suministro, f"Sub-frames en frmMain: {len(sub_frames)}")
+        links_sub = []
+        for sf_idx, sf in enumerate(sub_frames):
+            try:
+                sf_name = sf.get_attribute("name") or sf.get_attribute("id") or f"sf{sf_idx}"
+                log(suministro, f"  Entrando sub-frame '{sf_name}'")
+                driver.switch_to.frame(sf)
+                time.sleep(3)
+                _screenshot(driver, suministro, f"4b_sf_{sf_name}")
+                sf_links = driver.execute_script("""
+                    return Array.from(document.querySelectorAll('a')).map(a => ({
+                        text: a.innerText.trim(), href: a.href||'', onclick: a.getAttribute('onclick')||''
+                    }));
+                """)
+                log(suministro, f"  Links en sub-frame '{sf_name}': {len(sf_links)}")
+                for sl in sf_links:
+                    if "recibo" in sl["text"].lower() or "recibo" in sl["href"].lower():
+                        sl["_sf"] = sf_name
+                        links_sub.append(sl)
+                        log(suministro, f"  ✓ RECIBO sub-frame: {sl}")
+                with sessions_lock:
+                    sessions[suministro]["html_debug"][f"sf_{sf_name}"] = driver.page_source[:5000]
+                driver.switch_to.parent_frame()
+            except Exception as esf:
+                log(suministro, f"  Error sub-frame {sf_idx}: {esf}")
+                try:
+                    driver.switch_to.frame("frmMain")
+                except Exception:
+                    pass
+
+        # ── Consolidar todos los links de recibo ──────────────────────────────
         recibo_links = []
-        for a in todos_links:
-            texto = (a.text or "").strip()
-            href  = a.get_attribute("href") or ""
-            if "recibo" in texto.lower() or "recibo" in href.lower():
-                recibo_links.append({
-                    "texto": texto,
-                    "href": href,
-                    "onclick": a.get_attribute("onclick") or "",
-                })
-                log(suministro, f"  → Link recibo: texto='{texto}' href='{href}'")
+        seen = set()
+
+        def add_link(texto, href, onclick, source):
+            key = href or texto
+            if key and key not in seen:
+                seen.add(key)
+                recibo_links.append({"texto": texto, "href": href, "onclick": onclick, "source": source})
+
+        for a in todos_links_sel:
+            t = (a.text or "").strip(); h = a.get_attribute("href") or ""
+            if "recibo" in t.lower() or "recibo" in h.lower():
+                add_link(t, h, a.get_attribute("onclick") or "", "selenium")
 
         if not recibo_links:
-            log(suministro, "No se encontraron links de recibos. Revisando todo el HTML...")
-            soup = BeautifulSoup(main_html, "html.parser")
-            all_a = soup.find_all("a")
-            log(suministro, f"BeautifulSoup encontró {len(all_a)} links: {[(a.get_text(strip=True), a.get('href','')) for a in all_a]}")
+            for lj in links_js:
+                if "recibo" in lj["text"].lower() or "recibo" in lj["href"].lower():
+                    add_link(lj["text"], lj["href"], lj["onclick"], "js")
+
+        for sl in links_sub:
+            add_link(sl["text"], sl["href"], sl["onclick"], f"subframe:{sl.get('_sf','')}")
+
+        log(suministro, f"Total links recibo consolidados: {len(recibo_links)}")
+        for rl in recibo_links:
+            log(suministro, f"  → {rl}")
+
+        if not recibo_links:
+            log(suministro, "Sin links de recibo después de todas las estrategias")
             with sessions_lock:
                 sessions[suministro]["status"] = "empty"
             return
 
-        log(suministro, f"Total links de recibos encontrados: {len(recibo_links)}")
+
 
         # ── PASO 6: Obtener cookies para requests ─────────────────────────────
         frame_url = driver.current_url
