@@ -28,6 +28,17 @@ sessions_lock = threading.Lock()
 BASE_URL  = "https://www.chavimochic.gob.pe"
 LOGIN_URL = f"{BASE_URL}/iscomweb/iscon/maincon.aspx"
 
+def fix_url(url):
+    """Corrige URLs localhost del proxy de ChromeDriver → URL real del portal."""
+    if not url:
+        return url
+    from urllib.parse import urlparse, urlunparse
+    p = urlparse(url)
+    if p.hostname in ("localhost", "127.0.0.1") or (p.hostname or "").startswith("192.168."):
+        bp = urlparse(BASE_URL)
+        return urlunparse((bp.scheme, bp.netloc, p.path, p.params, p.query, p.fragment))
+    return url
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 def log(sumi, msg):
     with sessions_lock:
@@ -105,7 +116,7 @@ def make_requests_session(driver, referer=""):
     """Transfiere cookies de Selenium a requests."""
     ua = driver.execute_script("return navigator.userAgent")
     s  = req_lib.Session()
-    s.headers.update({"User-Agent": ua, "Referer": referer,
+    s.headers.update({"User-Agent": ua, "Referer": fix_url(referer),
                       "Accept": "text/html,application/pdf,*/*"})
     for c in driver.get_cookies():
         s.cookies.set(c["name"], c["value"],
@@ -165,14 +176,12 @@ def scrape_recibos(suministro):
                 sessions[suministro]["status"] = "empty"
             return
 
-        # ── 2. Capturar menú: obtener URLs de cada sección ───────────────────
+        # Capturar menú: obtener URLs de cada sección
         menu_urls = {}
-        menu_links_texto = {}
         for a in driver.find_elements(By.TAG_NAME, "a"):
             t  = (a.text or "").strip()
-            h  = a.get_attribute("href") or ""
+            h  = fix_url(a.get_attribute("href") or "")
             tl = t.lower()
-            menu_links_texto[tl] = t
             if h and not h.startswith("javascript"):
                 menu_urls[tl] = h
             log(suministro, f"  Menu: '{t}' → '{h}'")
@@ -214,8 +223,9 @@ def scrape_recibos(suministro):
         time.sleep(0.5)
 
         _shot(driver, suministro, "3_estado_cuenta")
-        html_ec  = driver.page_source
-        frame_url = driver.current_url
+        html_ec   = driver.page_source
+        frame_url = fix_url(driver.current_url)  # ← corregir localhost proxy
+        log(suministro, f"[{time.time()-t0:.1f}s] frame_url={frame_url}")
 
         with sessions_lock:
             sessions[suministro]["datos"]["estado_cuenta"]["html"]  = html_ec
@@ -294,15 +304,17 @@ def scrape_recibos(suministro):
 
             # Estrategia A: URL directa
             if href and not href.startswith("javascript") and href.startswith("http"):
+                href_fixed = fix_url(href)
                 try:
-                    r = req_s.get(href, verify=False, timeout=20)
+                    r = req_s.get(href_fixed, verify=False, timeout=20)
                     ct = r.headers.get("content-type","").lower()
-                    log(suministro, f"  A: {r.status_code} ct={ct} bytes={len(r.content)}")
+                    log(suministro, f"  A: {r.status_code} ct={ct} bytes={len(r.content)} url={href_fixed}")
                     if r.content[:4] == b"%PDF" or "pdf" in ct:
                         pdf_bytes = r.content
                         log(suministro, "  A ✓")
                 except Exception as ex:
                     log(suministro, f"  A ✗ {ex}")
+
 
             # Estrategia B: postback ASP.NET
             if not pdf_bytes:
@@ -350,7 +362,7 @@ def scrape_recibos(suministro):
                             for v in nuevas_v:
                                 driver.switch_to.window(v)
                                 time.sleep(2)
-                                tab_url  = driver.current_url
+                                tab_url  = fix_url(driver.current_url)  # ← fix localhost
                                 tab_html = driver.page_source
                                 _shot(driver, suministro, f"tab_{i}")
                                 log(suministro, f"  C: tab_url={tab_url}")
